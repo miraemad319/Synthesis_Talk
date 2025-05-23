@@ -1,4 +1,4 @@
-import os
+import os 
 import fitz  # PyMuPDF
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,5 +52,4 @@ async def upload_file(file: UploadFile = File(...)):
 
     os.remove(temp_path)
 
-    return {"filename": file.filename, "content": text[:1000]}
-
+    return {"filename": file.filename, "content": text[:1000]} 
