@@ -1,13 +1,26 @@
-from fastapi import FastAPI, File, UploadFile, Request
+from fastapi import FastAPI, File, UploadFile, Request, Form, Cookie, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pdfminer.high_level import extract_text
 import os
 import uuid
 from docx import Document
 from pydantic import BaseModel
-from llm import chat_with_llm
+import uuid
 
-conversation_history = []
+# Custom libraries
+from llm import chat_with_llm
+from duckduckgo_search import duckduckgo_search
+
+def summarize_text(text: str) -> str:
+    """
+    Summarize the given text using the LLM.
+    """
+    prompt = f"Summarize the following document:\n\n{text[:3000]}"
+    messages = [{"role": "user", "content": prompt}]
+    return chat_with_llm(messages)
+
+conversation_histories = {}
 
 class Message(BaseModel):
     content: str
@@ -58,11 +71,11 @@ async def upload_file(file: UploadFile = File(...)):
     temp_path = f"temp_upload_{unique_id}.{file_ext}"
 
     try:
-        # Save the uploaded file temporarily
+        # Save uploaded file
         with open(temp_path, "wb") as f:
             f.write(await file.read())
 
-        # Extract text based on file type
+        # Extract text
         if file_ext == "pdf":
             text = extract_text_from_pdf(temp_path)
         elif file_ext == "txt":
@@ -72,19 +85,52 @@ async def upload_file(file: UploadFile = File(...)):
         else:
             return {"error": "Unsupported file type. Please upload PDF, TXT, or DOCX."}
 
-        return {"filename": file.filename, "content": text[:1000]}  # Return first 1000 chars
+        # Summarize text
+        summary = summarize_text(text)
+
+        return {
+            "filename": file.filename,
+            "content": text[:1000],  # Optional: first 1000 chars
+            "summary": summary
+        }
 
     except Exception as e:
         return {"error": str(e)}
 
     finally:
-        # Clean up temp file
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
 @app.post("/chat/")
-async def chat(message: Message):
-    conversation_history.append({"role": "user", "content": message.content})
-    reply = chat_with_llm(conversation_history)
-    conversation_history.append({"role": "assistant", "content": reply})
-    return {"response": reply}
+async def chat(message: Message, session_id: str = Cookie(default=None)):
+    # Generate a new session_id if one doesn't exist
+    if session_id is None:
+        session_id = str(uuid.uuid4())
+        conversation_histories[session_id] = []
+    elif session_id not in conversation_histories:
+        conversation_histories[session_id] = []
+
+    # Add user message
+    conversation_histories[session_id].append({"role": "user", "content": message.content})
+
+    # Generate assistant reply
+    response = chat_with_llm(conversation_histories[session_id])
+
+    # Add assistant reply to history
+    conversation_histories[session_id].append({"role": "assistant", "content": response})
+
+    # Return response with session_id set as cookie
+    return JSONResponse(content={"response": response}, headers={"Set-Cookie": f"session_id={session_id}; Path=/; HttpOnly"})
+
+@app.post("/clear/")
+async def clear_history(session_id: str = Cookie(default=None)):
+    if session_id and session_id in conversation_histories:
+        conversation_histories[session_id] = []
+        return {"message": "Conversation history cleared."}
+    return {"message": "No session found to clear."}
+
+@app.get("/search/")
+def search(query: str = Query(..., description="Search query")):
+    result = duckduckgo_search(query)
+    return {"query": query, "result": result}
+
