@@ -1,24 +1,16 @@
-import os 
-import fitz  # PyMuPDF
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-
-# === TEXT EXTRACTION FUNCTIONS ===
-
-def extract_text_from_pdf(file_path: str) -> str:
-    doc = fitz.open(file_path)
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
-
-def extract_text_from_txt(file_path: str) -> str:
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return f.read()
-
-# === FASTAPI SETUP ===
+from pdfminer.high_level import extract_text
+import os
+import uuid
+from docx import Document
 
 app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"message": "API is running"}
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,28 +20,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def home():
-    return {"message": "SynthesisTalk backend is running."}
+def extract_text_from_pdf(file_path):
+    try:
+        text = extract_text(file_path)
+        return text
+    except Exception as e:
+        return f"Error extracting PDF text: {e}"
+
+def extract_text_from_txt(file_path):
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        return f"Error reading TXT file: {e}"
+
+def extract_text_from_docx(file_path):
+    try:
+        doc = Document(file_path)
+        full_text = []
+        for para in doc.paragraphs:
+            full_text.append(para.text)
+        return "\n".join(full_text)
+    except Exception as e:
+        return f"Error reading DOCX file: {e}"
 
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(...)):
     file_ext = file.filename.split(".")[-1].lower()
-    temp_path = f"temp_upload.{file_ext}"
+    unique_id = uuid.uuid4()
+    temp_path = f"temp_upload_{unique_id}.{file_ext}"
 
-    # Save uploaded file
-    with open(temp_path, "wb") as f:
-        f.write(await file.read())
+    try:
+        # Save the uploaded file temporarily
+        with open(temp_path, "wb") as f:
+            f.write(await file.read())
 
-    # Extract text
-    if file_ext == "pdf":
-        text = extract_text_from_pdf(temp_path)
-    elif file_ext == "txt":
-        text = extract_text_from_txt(temp_path)
-    else:
-        os.remove(temp_path)
-        return {"error": "Unsupported file type"}
+        # Extract text based on file type
+        if file_ext == "pdf":
+            text = extract_text_from_pdf(temp_path)
+        elif file_ext == "txt":
+            text = extract_text_from_txt(temp_path)
+        elif file_ext == "docx":
+            text = extract_text_from_docx(temp_path)
+        else:
+            return {"error": "Unsupported file type. Please upload PDF, TXT, or DOCX."}
 
-    os.remove(temp_path)
+        return {"filename": file.filename, "content": text[:1000]}  # Return first 1000 chars
 
-    return {"filename": file.filename, "content": text[:1000]} 
+    except Exception as e:
+        return {"error": str(e)}
+
+    finally:
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
