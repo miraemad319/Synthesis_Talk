@@ -1,9 +1,16 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pdfminer.high_level import extract_text
 import os
 import uuid
 from docx import Document
+from pydantic import BaseModel
+from llm import chat_with_llm
+
+conversation_history = []
+
+class Message(BaseModel):
+    content: str
 
 app = FastAPI()
 
@@ -75,3 +82,9 @@ async def upload_file(file: UploadFile = File(...)):
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
+@app.post("/chat/")
+async def chat(message: Message):
+    conversation_history.append({"role": "user", "content": message.content})
+    reply = chat_with_llm(conversation_history)
+    conversation_history.append({"role": "assistant", "content": reply})
+    return {"response": reply}

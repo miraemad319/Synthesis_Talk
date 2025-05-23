@@ -8,3 +8,5 @@ cffi==1.17.1
 charset-normalizer==3.4.2
 lxml==5.4.0
 pycparser==2.22
+openai
+dotenv
