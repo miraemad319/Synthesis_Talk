@@ -8,6 +8,7 @@ from docx import Document
 from pydantic import BaseModel
 import uuid
 import re
+from collections import defaultdict
 
 # Custom libraries
 from llm import react_with_llm
@@ -19,9 +20,11 @@ def summarize_text(text: str) -> str:
     """
     prompt = f"Summarize the following document:\n\n{text[:3000]}"
     messages = [{"role": "user", "content": prompt}]
-    return chat_with_llm(messages)
+    return react_with_llm(messages)
 
+# Session-based conversation + document storage
 conversation_histories = {}
+document_store = defaultdict(list)  # session_id -> list of (chunk_text, original_filename)
 
 class Message(BaseModel):
     content: str
@@ -74,17 +77,18 @@ def extract_search_query(message: str):
     return None
 
 @app.post("/upload/")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), session_id: str = Cookie(None)):
+
+    if session_id is None:
+        session_id = str(uuid.uuid4())
+
     file_ext = file.filename.split(".")[-1].lower()
-    unique_id = uuid.uuid4()
-    temp_path = f"temp_upload_{unique_id}.{file_ext}"
+    temp_path = f"temp_upload_{uuid.uuid4()}.{file_ext}"
 
     try:
-        # Save uploaded file
         with open(temp_path, "wb") as f:
             f.write(await file.read())
 
-        # Extract text
         if file_ext == "pdf":
             text = extract_text_from_pdf(temp_path)
         elif file_ext == "txt":
@@ -94,13 +98,16 @@ async def upload_file(file: UploadFile = File(...)):
         else:
             return {"error": "Unsupported file type. Please upload PDF, TXT, or DOCX."}
 
-        # Summarize text
-        summary = summarize_text(text)
+        # Chunk text into 500-character pieces (basic retrieval unit)
+        chunks = [text[i:i+500] for i in range(0, len(text), 500)]
+        for chunk in chunks:
+            document_store[session_id].append((chunk, file.filename))
 
+        summary = summarize_text(text)
         return {
             "filename": file.filename,
-            "content": text[:1000],  # Optional: first 1000 chars
-            "summary": summary
+            "summary": summary,
+            "chunks": len(chunks)
         }
 
     except Exception as e:
@@ -112,40 +119,42 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/chat/")
 async def chat(request: Request, session_id: str = Cookie(None)):
+    import uuid
+
     if session_id is None:
-        # Generate a new session ID if none existss
         session_id = str(uuid.uuid4())
 
     data = await request.json()
     user_message = data.get("message", "")
 
-    # Initialize conversation history if not present
     if session_id not in conversation_histories:
         conversation_histories[session_id] = []
 
-    # Append user message to history
     conversation_histories[session_id].append({"role": "user", "content": user_message})
 
-    # Check if user wants to do a web search
+    # If query seems like a search, trigger web search
     search_query = extract_search_query(user_message)
     if search_query:
-        # Call the DuckDuckGo search tool
         search_results = duckduckgo_search(search_query)
-
-        # Add search results to conversation as system message for context
-        context_message = f"Search[{search_query}]: {search_results.get('abstract') or 'No relevant info found.'}"
+        context_message = f"Search results for '{search_query}':\n{search_results}"
         conversation_histories[session_id].append({"role": "system", "content": context_message})
 
-    # Call the LLM with enriched conversation history
+    # Add relevant document chunks to the conversation
+    doc_context = ""
+    for chunk, filename in document_store.get(session_id, []):
+        if any(keyword in chunk.lower() for keyword in user_message.lower().split()):
+            doc_context += f"\n[From {filename}]\n{chunk}\n"
+
+    if doc_context:
+        conversation_histories[session_id].append({"role": "system", "content": f"Relevant documents:\n{doc_context.strip()}"})
+
     try:
         response_text = react_with_llm(conversation_histories[session_id])
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-    # Append LLM response to history
     conversation_histories[session_id].append({"role": "assistant", "content": response_text})
 
-    # Return response and set session_id cookie if new
     response = JSONResponse(content={"response": response_text})
     if "session_id" not in request.cookies:
         response.set_cookie(key="session_id", value=session_id)
