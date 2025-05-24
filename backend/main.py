@@ -10,7 +10,7 @@ import uuid
 import re
 
 # Custom libraries
-from llm import chat_with_llm
+from llm import react_with_llm
 from duckduckgo_search import duckduckgo_search
 
 def summarize_text(text: str) -> str:
@@ -113,8 +113,7 @@ async def upload_file(file: UploadFile = File(...)):
 @app.post("/chat/")
 async def chat(request: Request, session_id: str = Cookie(None)):
     if session_id is None:
-        # Generate a new session ID if none exists
-        import uuid
+        # Generate a new session ID if none existss
         session_id = str(uuid.uuid4())
 
     data = await request.json()
@@ -134,14 +133,12 @@ async def chat(request: Request, session_id: str = Cookie(None)):
         search_results = duckduckgo_search(search_query)
 
         # Add search results to conversation as system message for context
-        context_message = (
-            f"Search results for '{search_query}':\n{search_results}"
-        )
+        context_message = f"Search[{search_query}]: {search_results.get('abstract') or 'No relevant info found.'}"
         conversation_histories[session_id].append({"role": "system", "content": context_message})
 
     # Call the LLM with enriched conversation history
     try:
-        response_text = chat_with_llm(conversation_histories[session_id])
+        response_text = react_with_llm(conversation_histories[session_id])
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
