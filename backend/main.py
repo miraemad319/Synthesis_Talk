@@ -7,6 +7,7 @@ import uuid
 from docx import Document
 from pydantic import BaseModel
 import uuid
+import re
 
 # Custom libraries
 from llm import chat_with_llm
@@ -63,6 +64,14 @@ def extract_text_from_docx(file_path):
         return "\n".join(full_text)
     except Exception as e:
         return f"Error reading DOCX file: {e}"
+    
+def extract_search_query(message: str):
+    # Simple regex to capture "search: some query" or "find: some query"
+    pattern = r"(?:search|find)[:\-]\s*(.+)"
+    match = re.search(pattern, message, re.I)
+    if match:
+        return match.group(1)
+    return None
 
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(...)):
@@ -102,25 +111,48 @@ async def upload_file(file: UploadFile = File(...)):
             os.remove(temp_path)
 
 @app.post("/chat/")
-async def chat(message: Message, session_id: str = Cookie(default=None)):
-    # Generate a new session_id if one doesn't exist
+async def chat(request: Request, session_id: str = Cookie(None)):
     if session_id is None:
+        # Generate a new session ID if none exists
+        import uuid
         session_id = str(uuid.uuid4())
+
+    data = await request.json()
+    user_message = data.get("message", "")
+
+    # Initialize conversation history if not present
+    if session_id not in conversation_histories:
         conversation_histories[session_id] = []
-    elif session_id not in conversation_histories:
-        conversation_histories[session_id] = []
 
-    # Add user message
-    conversation_histories[session_id].append({"role": "user", "content": message.content})
+    # Append user message to history
+    conversation_histories[session_id].append({"role": "user", "content": user_message})
 
-    # Generate assistant reply
-    response = chat_with_llm(conversation_histories[session_id])
+    # Check if user wants to do a web search
+    search_query = extract_search_query(user_message)
+    if search_query:
+        # Call the DuckDuckGo search tool
+        search_results = duckduckgo_search(search_query)
 
-    # Add assistant reply to history
-    conversation_histories[session_id].append({"role": "assistant", "content": response})
+        # Add search results to conversation as system message for context
+        context_message = (
+            f"Search results for '{search_query}':\n{search_results}"
+        )
+        conversation_histories[session_id].append({"role": "system", "content": context_message})
 
-    # Return response with session_id set as cookie
-    return JSONResponse(content={"response": response}, headers={"Set-Cookie": f"session_id={session_id}; Path=/; HttpOnly"})
+    # Call the LLM with enriched conversation history
+    try:
+        response_text = chat_with_llm(conversation_histories[session_id])
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # Append LLM response to history
+    conversation_histories[session_id].append({"role": "assistant", "content": response_text})
+
+    # Return response and set session_id cookie if new
+    response = JSONResponse(content={"response": response_text})
+    if "session_id" not in request.cookies:
+        response.set_cookie(key="session_id", value=session_id)
+    return response
 
 @app.post("/clear/")
 async def clear_history(session_id: str = Cookie(default=None)):
