@@ -8,6 +8,7 @@ import re
 
 from ..utils.session_store import conversation_histories, document_store, persist
 from ..utils.helpers import extract_search_query
+from ..utils.concept_linker import find_relevant_chunks
 from ..llm import react_with_llm
 from ..duckduckgo_search import duckduckgo_search
 
@@ -52,13 +53,8 @@ async def chat(
         logging.info(f"Web search context added for session {session_id}")
         persist()
 
-    # Inject document chunks based on keyword overlap
-    doc_context = ""
-    for chunk, filename in document_store.get(session_id, []):
-        for keyword in user_message.lower().split():
-            if re.search(rf"\b{re.escape(keyword)}\b", chunk.lower()):
-                doc_context += f"\n[From {filename}]\n{chunk}\n"
-                break  # Avoid duplicates
+    relevant_chunks = find_relevant_chunks(user_message, document_store.get(session_id, []))
+    doc_context = "\n".join(f"[From {filename}]\n{chunk}" for chunk, filename in relevant_chunks)
 
     # Trim context to avoid token overflow
     MAX_CONTEXT_LENGTH = 2000

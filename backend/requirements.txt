@@ -10,3 +10,5 @@ lxml==5.4.0
 pycparser==2.22
 openai
 dotenv
+scikit-learn
+nltk
