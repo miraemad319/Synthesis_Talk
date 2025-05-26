@@ -1,10 +1,16 @@
 from collections import defaultdict
+from persistence import load_sessions, save_sessions
 
-# In-memory session storage for conversation history and uploaded documents
+# Load saved data (if available)
+_conversations, _documents = load_sessions()
 
-# Tracks the message history per session (used to maintain LLM context)
-conversation_histories = {}
+# Initialize in-memory stores
+conversation_histories = _conversations
+document_store = defaultdict(list, _documents)
 
-# Stores uploaded document chunks per session
-# Format: session_id -> list of (chunk_text, filename)
-document_store = defaultdict(list)
+def persist():
+    """
+    Manually call this to persist current state to disk.
+    """
+    save_sessions(conversation_histories, document_store)
+

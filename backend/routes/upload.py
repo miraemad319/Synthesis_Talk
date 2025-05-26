@@ -3,10 +3,10 @@ import uuid
 import os
 
 # Import utility functions for file reading, chunking, session storage, and summarization
-from utils.file_extraction import extract_text_from_pdf, extract_text_from_txt, extract_text_from_docx
-from utils.chunking import split_into_chunks
-from utils.session_store import document_store
-from utils.summarizer import summarize_text
+from ..utils.file_extraction import extract_text_from_pdf, extract_text_from_txt, extract_text_from_docx
+from ..utils.chunking import split_into_chunks
+from ..utils.session_store import document_store, persist
+from ..utils.summarizer import summarize_text
 
 # Create a router to group upload-related endpoints
 router = APIRouter()
@@ -46,6 +46,9 @@ async def upload_file(
         for chunk in chunks:
             document_store[session_id].append((chunk, file.filename))
 
+        # Save document state after upload
+        persist()
+
         # Generate a summary of the full document using LLM
         summary = summarize_text(text)
 
@@ -64,3 +67,4 @@ async def upload_file(
         # Clean up by removing the temporary uploaded file
         if os.path.exists(temp_path):
             os.remove(temp_path)
+

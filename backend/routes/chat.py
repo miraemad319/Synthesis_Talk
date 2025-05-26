@@ -6,7 +6,7 @@ import uuid
 import logging
 import re
 
-from ..utils.session_store import conversation_histories, document_store
+from ..utils.session_store import conversation_histories, document_store, persist
 from ..utils.helpers import extract_search_query
 from ..llm import react_with_llm
 from ..duckduckgo_search import duckduckgo_search
@@ -41,6 +41,7 @@ async def chat(
 
     # Save user message to the conversation
     conversation_histories[session_id].append({"role": "user", "content": user_message})
+    persist()
 
     # Check if the message contains a web search trigger
     search_query = extract_search_query(user_message)
@@ -49,6 +50,7 @@ async def chat(
         context_message = f"Search results for '{search_query}':\n{search_results}"
         conversation_histories[session_id].append({"role": "system", "content": context_message})
         logging.info(f"Web search context added for session {session_id}")
+        persist()
 
     # Inject document chunks based on keyword overlap
     doc_context = ""
@@ -67,6 +69,7 @@ async def chat(
             "content": f"Relevant documents:\n{trimmed_context.strip()}"
         })
         logging.info(f"Document context added for session {session_id}")
+        persist()
 
     # Get LLM response
     try:
@@ -77,6 +80,20 @@ async def chat(
 
     # Save assistant response to history
     conversation_histories[session_id].append({"role": "assistant", "content": response_text})
+    persist()
 
     # Send response and set session ID cookie if it's a new session
-    response = JSON
+    response = JSONResponse(content={"response": response_text})
+    if "session_id" not in request.cookies:
+        response.set_cookie(key="session_id", value=session_id)
+    return response
+
+# POST /clear/ - Clears the session's conversation history
+@router.post("/clear/")
+async def clear_history(session_id: Optional[str] = Cookie(default=None)):
+    if session_id and session_id in conversation_histories:
+        conversation_histories[session_id] = []
+        persist()
+        return {"message": "Conversation history cleared."}
+    return {"message": "No session found to clear."}
+
