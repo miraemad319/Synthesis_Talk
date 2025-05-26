@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, UploadFile, Cookie
+from fastapi import APIRouter, File, UploadFile, Cookie, Query
 import uuid
 import os
 
@@ -14,7 +14,8 @@ router = APIRouter()
 @router.post("/upload/")
 async def upload_file(
     file: UploadFile = File(...),            # The uploaded file (PDF, DOCX, TXT)
-    session_id: str = Cookie(default=None)   # Track user sessions via cookie
+    session_id: str = Cookie(default=None),   # Track user sessions via cookie
+    format: str = Query(default="paragraph", enum=["paragraph", "bullets"])
 ):
     # Create a new session ID if not already provided
     if session_id is None:
@@ -50,7 +51,7 @@ async def upload_file(
         persist()
 
         # Generate a summary of the full document using LLM
-        summary = summarize_text(text)
+        summary = summarize_text(text, format=format)
 
         # Return file info, number of chunks, and summary
         return {
