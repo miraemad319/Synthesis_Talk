@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Synthesis Talk</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 1rem;
+      background: #f9f9f9;
+    }
+    h1 {
+      color: #444;
+    }
+    #chat-box {
+      border: 1px solid #ccc;
+      padding: 1rem;
+      height: 300px;
+      overflow-y: auto;
+      background: #fff;
+      margin-top: 1rem;
+    }
+    .user-msg { color: blue; }
+    .bot-msg { color: green; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+
+  <h1>Synthesis Talk</h1>
+
+  <!-- Upload a file -->
+  <form id="upload-form">
+    <input type="file" id="file" name="file" required />
+    <button type="submit">Upload & Summarize</button>
+  </form>
+
+  <h3>Summary:</h3>
+  <div id="summary"></div>
+
+  <hr>
+
+  <!-- Chat with LLM -->
+  <h3>Chat:</h3>
+  <div id="chat-box"></div>
+
+  <form id="chat-form">
+    <input type="text" id="user-input" placeholder="Ask something..." required style="width: 80%;" />
+    <button type="submit">Send</button>
+  </form>
+
+  <script>
+    const uploadForm = document.getElementById('upload-form');
+    const chatForm = document.getElementById('chat-form');
+    const chatBox = document.getElementById('chat-box');
+    const summaryDiv = document.getElementById('summary');
+    const userInput = document.getElementById('user-input');
+
+    let uploadedSummary = ""; // 🟢 Store uploaded summary
+    let chatHistory = [];
+
+    // Handle file upload
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const fileInput = document.getElementById('file');
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+
+      const res = await fetch('http://127.0.0.1:8000/upload/', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      uploadedSummary = data.summary || 'No summary returned.';
+      summaryDiv.innerText = uploadedSummary;
+
+      // Optional: Reset chat history when new file is uploaded
+      chatHistory = [];
+      chatBox.innerHTML = '';
+    });
+
+    // Handle chat form
+    chatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const message = userInput.value.trim();
+      if (!message) return;
+
+      displayMessage("You", message, "user-msg");
+
+      // Build message history for backend
+      const messages = [
+        { role: "system", content: "You are an assistant answering questions about a document." },
+        { role: "user", content: "Here is the summary of the document:\n" + uploadedSummary },
+        ...chatHistory,
+        { role: "user", content: message }
+      ];
+
+      const res = await fetch('http://127.0.0.1:8000/chat/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages })
+      });
+
+      const data = await res.json();
+      const reply = data.reply || "(No response)";
+      displayMessage("Bot", reply, "bot-msg");
+
+      // Add to history for context in future messages
+      chatHistory.push({ role: "user", content: message });
+      chatHistory.push({ role: "assistant", content: reply });
+
+      userInput.value = "";
+    });
+
+    function displayMessage(sender, text, className) {
+      const p = document.createElement('p');
+      p.className = className;
+      p.innerHTML = `<strong>${sender}:</strong> ${text}`;
+      chatBox.appendChild(p);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+  </script>
+
+</body>
+</html>
+
