@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Cookie, Body
 from pydantic import BaseModel
-from ..utils.session_store import conversation_histories, persist
-from ..llm import react_with_llm
+from backend.utils.session_store import conversation_histories, persist
+from backend.llm import react_with_llm
 
 router = APIRouter()
 

@@ -6,11 +6,11 @@ import uuid
 import logging
 import re
 
-from ..utils.session_store import conversation_histories, document_store, persist
-from ..utils.helpers import extract_search_query
-from ..utils.concept_linker import find_relevant_chunks
-from ..llm import react_with_llm
-from ..duckduckgo_search import duckduckgo_search
+from backend.utils.session_store import conversation_histories, document_store, persist
+from backend.utils.helpers import extract_search_query
+from backend.utils.concept_linker import find_relevant_chunks
+from backend.llm import react_with_llm
+from backend.duckduckgo_search import duckduckgo_search
 
 # Initialize logger and router
 logging.basicConfig(level=logging.INFO)

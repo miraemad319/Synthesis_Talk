@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Cookie
 from fastapi.responses import FileResponse
 import os
-from ..utils.session_store import conversation_histories
+from backend.utils.session_store import conversation_histories
 from datetime import datetime
 
 router = APIRouter()

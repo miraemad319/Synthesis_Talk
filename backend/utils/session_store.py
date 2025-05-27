@@ -1,5 +1,5 @@
 from collections import defaultdict
-from persistence import load_sessions, save_sessions
+from backend.utils.persistence import load_sessions, save_sessions
 
 # Load saved data (if available)
 _conversations, _documents = load_sessions()

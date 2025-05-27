@@ -10,6 +10,11 @@ lxml==5.4.0
 pycparser==2.22
 openai
 dotenv
+pdfiner.six
+docx
+httpx
+pydantic
 scikit-learn
 nltk
 matplotlib
+pytest

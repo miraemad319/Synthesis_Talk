@@ -3,10 +3,10 @@ import uuid
 import os
 
 # Import utility functions for file reading, chunking, session storage, and summarization
-from ..utils.file_extraction import extract_text_from_pdf, extract_text_from_txt, extract_text_from_docx
-from ..utils.chunking import split_into_chunks
-from ..utils.session_store import document_store, persist
-from ..utils.summarizer import summarize_text
+from backend.utils.file_extraction import extract_text_from_pdf, extract_text_from_txt, extract_text_from_docx
+from backend.utils.chunking import split_into_chunks
+from backend.utils.session_store import document_store, persist
+from backend.utils.summarizer import summarize_text
 
 # Create a router to group upload-related endpoints
 router = APIRouter()
@@ -20,6 +20,8 @@ async def upload_file(
     # Create a new session ID if not already provided
     if session_id is None:
         session_id = str(uuid.uuid4())
+
+    print(f"[UPLOAD] Using session_id: {session_id}")
 
     # Extract file extension (e.g., pdf, txt, docx)
     file_ext = file.filename.split(".")[-1].lower()
@@ -40,18 +42,28 @@ async def upload_file(
         else:
             return {"error": "Unsupported file type. Please upload PDF, TXT, or DOCX."}
 
+        # Check if text extraction failed
+        if text.startswith("Error"):
+            return {"error": text}
+
         # Break text into smaller chunks (used later for context-aware LLM responses)
         chunks = split_into_chunks(text)
 
-        # Store each chunk associated with the session ID and original filename
-        for chunk in chunks:
-            document_store[session_id].append((chunk, file.filename))
-
-        # Save document state after upload
-        persist()
+        # Always store chunks regardless of format for downstream processing
+        if chunks:
+            # Clear any existing documents for this session and add new ones
+            document_store[session_id] = [(chunk, file.filename) for chunk in chunks]
+            print(f"[UPLOAD] Storing {len(chunks)} chunks for session {session_id}")
+            persist()
+        else:
+            return {"error": "No content could be extracted from the file."}
 
         # Generate a summary of the full document using LLM
-        summary = summarize_text(text, format=format)
+        try:
+            summary = summarize_text(text, format=format)
+        except Exception as e:
+            print(f"[UPLOAD] Summary generation failed: {e}")
+            summary = "Summary generation failed, but document was processed successfully."
 
         # Return file info, number of chunks, and summary
         return {
@@ -62,10 +74,12 @@ async def upload_file(
 
     except Exception as e:
         # Catch and return any unexpected errors
-        return {"error": str(e)}
+        print(f"[UPLOAD] Unexpected error: {e}")
+        return {"error": f"File processing failed: {str(e)}"}
 
     finally:
         # Clean up by removing the temporary uploaded file
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
 

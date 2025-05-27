@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query
-from ..duckduckgo_search import duckduckgo_search
+from backend.duckduckgo_search import duckduckgo_search
 
 router = APIRouter()
 
