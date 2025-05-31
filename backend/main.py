@@ -10,13 +10,13 @@ except Exception as e:
     print(f"Warning: Could not download NLTK data: {e}")
 
 # Import route modules
-from routes.upload import router as upload_router
-from routes.chat import router as chat_router
-from routes.search import router as search_router
-from routes.export import router as export_router
-from routes.visualize import router as visualize_router
-from routes.tools import router as tools_router
-from routes.insights import router as insights_router
+from backend.routes.upload import router as upload_router
+from backend.routes.chat import router as chat_router
+from backend.routes.search import router as search_router
+from backend.routes.export import router as export_router
+from backend.routes.visualize import router as visualize_router
+from backend.routes.tools import router as tools_router
+from backend.routes.insights import router as insights_router
 
 # Create FastAPI app instance
 app = FastAPI(title="SynthesisTalk API", description="Collaborative Research Assistant", version="1.0.0")

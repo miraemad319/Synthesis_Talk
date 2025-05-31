@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Optional: customize loader spinner */
+.loader {
+  border-top-color: transparent;
+}
