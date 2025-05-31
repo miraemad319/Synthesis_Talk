@@ -1,54 +1,57 @@
-# routes/insights.py
-from fastapi import APIRouter, Cookie
+# backend/routes/insights.py
+
+from fastapi import APIRouter, Cookie, HTTPException
+from fastapi.responses import JSONResponse
+import json
+
 from backend.utils.session_store import document_store, conversation_histories, persist
 from backend.llm import react_with_llm
 
 router = APIRouter()
 
 @router.get("/insights/")
-def generate_insights(session_id: str = Cookie(default=None)):
-    """
-    Analyze all uploaded documents and generate research insights based on patterns.
-    """
+async def generate_insights(session_id: str = Cookie(default=None)):
+    print(f"[DEBUG /insights/] session_id cookie:", session_id)
     if not session_id:
-        return {"error": "Missing session ID"}
+        raise HTTPException(status_code=400, detail="Missing session ID")
 
-    print(f"[INSIGHTS] Checking session: {session_id}")
-    print(f"[INSIGHTS] Available sessions: {list(document_store.keys())}")
-    print(f"[INSIGHTS] Session data: {document_store.get(session_id, 'NOT FOUND')}")
+    docs = document_store.get(session_id, [])
+    print(f"[DEBUG /insights/] document_store for {session_id}:", docs)
+    if not docs:
+        raise HTTPException(status_code=404, detail="No documents found for session")
 
-    if session_id not in document_store or not document_store[session_id]:
-        return {"error": "No documents found for session"}
-
-    # Combine all text chunks
-    all_text = "\n".join(chunk for chunk, _ in document_store[session_id])
-
+    all_text = "\n".join(chunk for chunk, _ in docs)
     if not all_text.strip():
-        return {"error": "No content available for generating insights."}
+        raise HTTPException(status_code=400, detail="No content available for generating insights.")
 
+    # Build a JSON‐output prompt
     prompt = (
-        "Analyze the following collection of text and extract useful insights, "
-        "connections between ideas, or patterns that are worth noting. Be concise and informative.\n\n"
-        f"{all_text[:3000]}"
+        "You are an AI research assistant. "
+        "Please analyze the following document and return a JSON with\n"
+        "  \"paragraph\": \"<a concise summary>\",\n"
+        "  \"bullets\": [\"<bullet1>\", \"<bullet2>\", \"<bullet3>\"]\n"
+        f"Document Text:\n{all_text[:3000]}\n"
+        "Return ONLY valid JSON."
     )
 
-    # Initialize conversation history for this session if it doesn't exist
     if session_id not in conversation_histories:
         conversation_histories[session_id] = []
 
-    # Create a temporary conversation for the insights request
-    temp_messages = [{"role": "user", "content": prompt}]
-
     try:
-        response = react_with_llm(temp_messages)
-        
-        # Store the insights request and response in conversation history
-        conversation_histories[session_id].append({"role": "user", "content": f"[INSIGHTS REQUEST] {prompt[:100]}..."})
-        conversation_histories[session_id].append({"role": "assistant", "content": response})
-        persist()
-
-        return {"insights": response}
-        
+        llm_response = react_with_llm([{"role": "user", "content": prompt}])
+        parsed = json.loads(llm_response)
+        paragraph = parsed.get("paragraph", "")
+        bullets = parsed.get("bullets", [])
+        if not isinstance(bullets, list):
+            bullets = []
+    except json.JSONDecodeError as je:
+        raise HTTPException(status_code=500, detail="LLM did not return valid JSON for insights.")
     except Exception as e:
-        print(f"[INSIGHTS] Error generating insights: {e}")
-        return {"error": f"Failed to generate insights: {str(e)}"}
+        raise HTTPException(status_code=500, detail=f"Insight generation failed: {e}")
+
+    conversation_histories[session_id].append({"role": "assistant", "content": llm_response})
+    persist()
+
+    print(f"[DEBUG /insights/] returning:", {"paragraph": paragraph, "bullets": bullets})
+    return JSONResponse(content={"paragraph": paragraph, "bullets": bullets})
+

@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import api from '../utils/api';
 
-export default function ContextSidebar() {
+const ContextSidebar = forwardRef((props, ref) => {
   const [contexts, setContexts] = useState([]);
   const [current, setCurrent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Expose fetchContexts so parent can call it
+  useImperativeHandle(ref, () => ({ fetchContexts }));
 
   useEffect(() => {
     fetchContexts();
@@ -15,8 +18,7 @@ export default function ContextSidebar() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.get('/context');
-      // assume API returns { contexts: [{ id, topic, sources: [] }], current: id }
+      const res = await api.get('/context/');
       setContexts(res.data.contexts);
       setCurrent(res.data.current);
     } catch (err) {
@@ -28,7 +30,7 @@ export default function ContextSidebar() {
   const switchContext = async (id) => {
     setLoading(true);
     try {
-      await api.post('/context', { context_id: id });
+      await api.post('/context/', { context_id: id });
       setCurrent(id);
     } catch {
       setError('Failed to switch context.');
@@ -37,20 +39,22 @@ export default function ContextSidebar() {
   };
 
   return (
-    <div className="w-64 p-4 border-r overflow-auto">
+    <div className="w-64 p-4 border-r overflow-auto bg-white">
       <h2 className="text-lg font-semibold mb-4">Research Contexts</h2>
-      {loading && <p>Loading...</p>}
+      {loading && <p className="text-gray-500">Loading...</p>}
       {error && <p className="text-red-500">{error}</p>}
       <ul className="space-y-2">
         {contexts.map((ctx) => (
           <li key={ctx.id}>
             <button
               onClick={() => switchContext(ctx.id)}
-              className={`w-full text-left p-2 rounded ${ctx.id === current ? 'bg-blue-500 text-white' : 'bg-gray-100'}`}
+              className={`w-full text-left p-2 rounded ${
+                ctx.id === current ? 'bg-blue-500 text-white' : 'bg-gray-100'
+              }`}
             >
               {ctx.topic}
             </button>
-            {ctx.id === current && (
+            {ctx.id === current && ctx.sources.length > 0 && (
               <ul className="mt-1 ml-4 list-disc text-sm">
                 {ctx.sources.map((s, i) => (
                   <li key={i}>{s}</li>
@@ -62,4 +66,7 @@ export default function ContextSidebar() {
       </ul>
     </div>
   );
-}
+});
+
+export default ContextSidebar;
+

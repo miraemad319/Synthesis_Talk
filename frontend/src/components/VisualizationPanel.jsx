@@ -7,14 +7,13 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-} from 'recharts'; // make sure you've installed recharts
+} from 'recharts';
 import api from '../utils/api';
 
 export default function VisualizationPanel() {
-  // Ensure data always starts as an array
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetchVisualization();
@@ -22,30 +21,24 @@ export default function VisualizationPanel() {
 
   const fetchVisualization = async () => {
     setLoading(true);
-    setError('');
+    setError("");
     try {
-      const res = await api.get('/visualize');
-      // If the backend returns { data: [...] }, use that.
-      // Otherwise, fall back to an empty array.
-      const incoming = res.data?.data;
-      if (Array.isArray(incoming)) {
-        setData(incoming);
-      } else {
-        setData([]);
-      }
+      const res = await api.get("/visualize/");
+      setData(res.data.data || []);
     } catch (err) {
-      setError('Failed to load visualization.');
-      setData([]); // reset to empty array on error
+      setError("Failed to load visualization.");
+      setData([]);
     }
     setLoading(false);
   };
 
   return (
-    <div className="p-4 flex-1 overflow-auto">
+    <div className="p-4 flex-1 overflow-auto bg-white">
       <h2 className="text-lg font-semibold mb-2">Visualization</h2>
-      {loading && <p>Loading chart...</p>}
+      {loading && <p className="text-gray-500">Loading chart...</p>}
       {error && <p className="text-red-500">{error}</p>}
-      {!loading && !error && Array.isArray(data) && data.length > 0 && (
+
+      {!loading && !error && data.length > 0 && (
         <ResponsiveContainer width="100%" height={200}>
           <BarChart
             data={data}
@@ -55,14 +48,13 @@ export default function VisualizationPanel() {
             <XAxis dataKey="name" />
             <YAxis />
             <Tooltip />
-            <Bar dataKey="value" fill="#8884d8" />
+            <Bar dataKey="value" fill="#4F46E5" />
           </BarChart>
         </ResponsiveContainer>
       )}
 
-      {/* If data is empty and there’s no error/loading, maybe show a placeholder */}
-      {!loading && !error && (!Array.isArray(data) || data.length === 0) && (
-        <p>No data to display.</p>
+      {!loading && !error && data.length === 0 && (
+        <p className="text-gray-500">No data to display.</p>
       )}
     </div>
   );
