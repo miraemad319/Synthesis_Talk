@@ -1,26 +1,36 @@
-// frontend/src/hooks/useChat.js
-
 import { useState } from 'react';
 import api from '../utils/api';
 
 export function useChat() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const sendMessage = async (text) => {
     setLoading(true);
-    // Append user message
+    setError(null);
+    
+    // Append user message immediately
     setMessages((prev) => [...prev, { user: text }]);
+    
     try {
       const res = await api.post('/chat/', { message: text });
-      // Now read the “reply” field, not “response”
-      const botReply = res.data.reply;
+      const botReply = res.data.reply || res.data.response || 'No response received';
       setMessages((prev) => [...prev, { bot: botReply }]);
     } catch (e) {
-      setMessages((prev) => [...prev, { bot: 'Error: Unable to reach server.' }]);
+      console.error('Chat error:', e);
+      const errorMessage = e.userMessage || 'Unable to reach server. Please check your connection.';
+      setMessages((prev) => [...prev, { bot: `Error: ${errorMessage}` }]);
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  return { messages, sendMessage, loading };
+  const clearChat = () => {
+    setMessages([]);
+    setError(null);
+  };
+
+  return { messages, sendMessage, loading, error, clearChat };
 }

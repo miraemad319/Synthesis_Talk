@@ -26,8 +26,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+   allow_origins=["http://localhost:5173"],  # ← your Vite/React origin
+    allow_credentials=True,                    # must stay True so cookies flow
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -19,7 +19,7 @@ export default function App() {
       {/* Center: Upload + Chat */}
       <div className="flex flex-col flex-1 overflow-hidden">
         <div className="border-b bg-white">
-          <UploadArea onUploaded={() => contextSidebarRef.current.fetchContexts()} />
+          <UploadArea onUploaded={() => contextSidebarRef.current?.fetchContexts()} />
         </div>
         <div className="flex-1 flex flex-col">
           <ChatWindow />
@@ -27,9 +27,11 @@ export default function App() {
       </div>
 
       {/* Right: Insights + Visualization */}
-      <div className="w-96 border-l flex flex-col overflow-hidden">
-        <InsightsPanel />
-        <div className="border-t">
+      <div className="w-96 border-l flex flex-col overflow-hidden bg-white">
+        <div className="flex-1">
+          <InsightsPanel />
+        </div>
+        <div className="border-t flex-1">
           <VisualizationPanel />
         </div>
       </div>
