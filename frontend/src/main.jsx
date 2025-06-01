@@ -135,3 +135,4 @@ export const reportWebVitals = (onPerfEntry) => {
 if (process.env.NODE_ENV === 'development') {
   reportWebVitals(console.log);
 }
+

@@ -5,6 +5,8 @@ import nltk
 import logging
 import os
 from contextlib import asynccontextmanager
+import asyncio
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -64,6 +66,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add trusted host middleware for security
+app.add_middleware(
+    TrustedHostMiddleware, 
+    allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0"]
+)
+
 # Enhanced CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -78,9 +86,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global exception handler
+# **NEW: Add timeout middleware**
+import time
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse as StarletteJSONResponse
+
+class TimeoutMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, timeout: int = 120):
+        super().__init__(app)
+        self.timeout = timeout
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            # Set a timeout for the entire request
+            return await asyncio.wait_for(
+                call_next(request), 
+                timeout=self.timeout
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Request timeout after {self.timeout}s for {request.url}")
+            return StarletteJSONResponse(
+                status_code=408,
+                content={
+                    "detail": f"Request timed out after {self.timeout} seconds",
+                    "error_type": "timeout",
+                    "suggestion": "Try breaking your request into smaller parts or contact support"
+                }
+            )
+
+# Add timeout middleware (120 seconds = 2 minutes)
+app.add_middleware(TimeoutMiddleware, timeout=120)
+
+# Global exception handler with better timeout handling
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
+    if isinstance(exc, asyncio.TimeoutError):
+        logger.error(f"Timeout exception: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=408,
+            content={
+                "detail": "Request timed out. The operation may be taking longer than expected.",
+                "error_type": "timeout",
+                "suggestion": "Please try again or break your request into smaller parts"
+            }
+        )
+    
     logger.error(f"Global exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
@@ -103,6 +154,7 @@ def root():
         "message": "SynthesisTalk API is running",
         "status": "healthy",
         "version": "1.0.0",
+        "timeout_config": "120 seconds",
         "features": [
             "Document analysis and extraction",
             "Multi-turn conversational AI",
@@ -119,6 +171,7 @@ def health_check():
     return {
         "status": "healthy",
         "message": "API is operational",
+        "timeout_limit": "120 seconds",
         "services": {
             "nltk": "available",
             "llm_integration": "ready",
@@ -132,6 +185,7 @@ def api_info():
     """Provide API information and available endpoints"""
     return {
         "api_version": "1.0.0",
+        "timeout_limit": "120 seconds",
         "endpoints": {
             "upload": "/api/v1/upload - Document upload and processing",
             "chat": "/api/v1/chat - Conversational interface",
@@ -147,4 +201,3 @@ def api_info():
             "output": ["JSON", "PDF", "DOCX", "HTML", "CSV"]
         }
     }
-
