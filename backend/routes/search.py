@@ -3,9 +3,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 import logging
+from datetime import datetime
 
 from backend.duckduckgo_search import duckduckgo_search
-from backend.utils.session_store import conversation_histories, search_cache, persist
+from backend.utils.session_store import conversation_histories, persist
 from backend.llm import react_with_llm
 
 router = APIRouter()

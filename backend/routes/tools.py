@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime
 
-from backend.utils.session_store import conversation_histories, document_store, tool_usage_log, persist
+from backend.utils.session_store import conversation_histories, document_store, persist
 from backend.llm import react_with_llm, tool_manager
 from backend.utils.concept_linker import find_relevant_chunks
 

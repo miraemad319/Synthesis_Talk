@@ -1,8 +1,11 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
-  timeout: 120000, // Increased timeout for LLM operations
+  // OPTION 1: Use Vite proxy - requests go to frontend port, proxy forwards to backend
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1",
+  // OPTION 2: Direct backend connection (uncomment if proxy issues)
+  // baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
+  timeout: 120000,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
@@ -220,115 +223,114 @@ export const synthesisAPI = {
   // Chat operations
   chat: {
     send: (message, context = {}) => 
-      api.post('/chat/', { message, ...context }),
+      api.post('/api/v1/chat/', { message, ...context }),
     
     stream: (message, context = {}, onData, onError) =>
-      apiUtils.streamResponse('/chat/stream', { message, ...context }, onData, onError),
+      apiUtils.streamResponse('/api/v1/chat/stream', { message, ...context }, onData, onError),
     
-    getHistory: (sessionId) => 
-      api.get(`/chat/history/${sessionId}`),
+    getHistory: () => 
+      api.get('/api/v1/chat/history'),
     
-    clearHistory: (sessionId) => 
-      api.delete(`/chat/history/${sessionId}`)
+    clearHistory: () => 
+      api.post('/api/v1/chat/clear'),
+    
+    provideFeedback: (feedback) =>
+      api.post('/api/v1/chat/feedback', feedback)
   },
   
   // Document operations
   documents: {
-    upload: (file, onProgress) => {
+    upload: (file, format = 'paragraph', onProgress) => {
       const formData = new FormData();
       formData.append('file', file);
-      return apiUtils.uploadWithProgress('/upload/', formData, onProgress);
+      const url = `/api/v1/upload/?format=${format}`;
+      return apiUtils.uploadWithProgress(url, formData, onProgress);
     },
     
-    list: () => api.get('/documents/'),
+    getHistory: () => 
+      api.get('/api/v1/upload/history'),
     
-    delete: (fileId) => api.delete(`/documents/${fileId}`),
-    
-    analyze: (fileId) => api.post(`/documents/${fileId}/analyze`),
-    
-    extract: (fileId) => api.get(`/documents/${fileId}/extract`)
+    remove: (filename) => 
+      api.delete(`/api/v1/upload/${encodeURIComponent(filename)}`)
   },
   
   // Search operations
   search: {
     web: (query, filters = {}) => 
-      api.post('/search/web', { query, ...filters }),
+      api.post('/api/v1/search/web', { query, ...filters }),
     
     documents: (query, filters = {}) => 
-      api.post('/search/documents', { query, ...filters }),
+      api.post('/api/v1/search/documents', { query, ...filters }),
     
     combined: (query, filters = {}) => 
-      api.post('/search/combined', { query, ...filters })
+      api.post('/api/v1/search/combined', { query, ...filters })
   },
   
   // Insights and analysis
   insights: {
     generate: (context = {}) => 
-      api.post('/insights/', context),
+      api.post('/api/v1/insights/', context),
     
     getTopics: () => 
-      api.get('/insights/topics'),
+      api.get('/api/v1/insights/topics'),
     
     getConnections: () => 
-      api.get('/insights/connections'),
+      api.get('/api/v1/insights/connections'),
     
     getSummary: (format = 'default') => 
-      api.get(`/insights/summary?format=${format}`)
+      api.get(`/api/v1/insights/summary?format=${format}`)
   },
   
   // Visualization
   visualization: {
     generate: (type = 'auto', data = {}) => 
-      api.post('/visualize/', { type, ...data }),
+      api.post('/api/v1/visualize/', { type, ...data }),
     
     getChart: (chartId) => 
-      api.get(`/visualize/${chartId}`),
+      api.get(`/api/v1/visualize/${chartId}`),
     
     getTypes: () => 
-      api.get('/visualize/types')
+      api.get('/api/v1/visualize/types')
   },
   
   // Export operations
   export: {
     pdf: (format = 'summary') => 
-      api.get(`/export/pdf?format=${format}`, { responseType: 'blob' }),
+      api.get(`/api/v1/export/pdf?format=${format}`, { responseType: 'blob' }),
     
     markdown: (format = 'summary') => 
-      api.get(`/export/markdown?format=${format}`),
+      api.get(`/api/v1/export/markdown?format=${format}`),
     
     json: () => 
-      api.get('/export/json'),
+      api.get('/api/v1/export/json'),
     
     formats: () => 
-      api.get('/export/formats')
+      api.get('/api/v1/export/formats')
   },
   
   // Context management
   context: {
-    get: () => api.get('/context/'),
+    get: () => api.get('/api/v1/context/'),
     
-    update: (context) => api.put('/context/', context),
+    update: (context) => api.put('/api/v1/context/', context),
     
-    clear: () => api.delete('/context/'),
+    clear: () => api.delete('/api/v1/context/'),
     
-    addSource: (source) => api.post('/context/sources', source),
+    addSource: (source) => api.post('/api/v1/context/sources', source),
     
-    removeSource: (sourceId) => api.delete(`/context/sources/${sourceId}`)
+    removeSource: (sourceId) => api.delete(`/api/v1/context/sources/${sourceId}`)
   },
   
   // Tools and utilities
   tools: {
-    list: () => api.get('/tools/'),
+    list: () => api.get('/api/v1/tools/'),
     
     execute: (toolName, params = {}) => 
-      api.post(`/tools/${toolName}`, params),
+      api.post(`/api/v1/tools/${toolName}`, params),
     
     getStatus: (toolName) => 
-      api.get(`/tools/${toolName}/status`)
+      api.get(`/api/v1/tools/${toolName}/status`)
   }
 };
 
 export default api;
-
-
-

@@ -267,7 +267,7 @@
   
   .dark-mode .card-header,
   .dark-mode .card-footer {
-    @apply bg-gray-750 border-gray-700;
+    @apply bg-gray-700 border-gray-700;
   }
 }
 

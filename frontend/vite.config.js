@@ -14,15 +14,62 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: true,
+    host: '0.0.0.0',
+    strictPort: true,
     proxy: {
+      // Proxy API calls to backend - FIXED: Don't rewrite the path
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+        secure: false,
+        // Remove the rewrite - let the full path go through
+        // rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },
+   proxy: {
+     // Proxy ANY upload/, chat/, context/, etc. directly to port-8000
+     '/upload': {
+       target: 'http://localhost:8000',
+       changeOrigin: true,
+       secure: false,
+     },
+     '/chat': {
+       target: 'http://localhost:8000',
+       changeOrigin: true,
+       secure: false,
+     },
+     '/context': {
+       target: 'http://localhost:8000',
+       changeOrigin: true,
+       secure: false,
+     },
+     '/insights': {
+       target: 'http://localhost:8000',
+       changeOrigin: true,
+       secure: false,
+     },
+     '/visualize': {
+       target: 'http://localhost:8000',
+       changeOrigin: true,
+       secure: false,
+     },
+     '/search': {
+       target: 'http://localhost:8000',
+       changeOrigin: true,
+       secure: false,
+     },
+     '/export': {
+       target: 'http://localhost:8000',
+       changeOrigin: true,
+       secure: false,
+     },
+     '/tools': {
+       target: 'http://localhost:8000',
+       changeOrigin: true,
+       secure: false,
+     },
+   },
   build: {
     outDir: 'dist',
     sourcemap: true,

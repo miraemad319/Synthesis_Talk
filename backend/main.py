@@ -28,11 +28,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not download NLTK data: {e}")
     
-    # Verify environment variables
-    required_env_vars = ["OPENAI_API_KEY", "GROQ_API_KEY"]  # Add your LLM API keys
+    # Verify environment variables - Updated to match your actual .env file
+    required_env_vars = ["NGU_API_KEY", "GROQ_API_KEY"]  # Fixed to match your .env
     missing_vars = [var for var in required_env_vars if not os.getenv(var)]
     if missing_vars:
         logger.warning(f"Missing environment variables: {missing_vars}")
+    else:
+        logger.info("All required environment variables are present")
+    
+    # Additional optional variables
+    optional_vars = ["NGU_BASE_URL", "NGU_MODEL", "GROQ_BASE_URL", "GROQ_MODEL", "MODEL_SERVER"]
+    present_optional = [var for var in optional_vars if os.getenv(var)]
+    if present_optional:
+        logger.info(f"Optional environment variables configured: {present_optional}")
     
     yield
     
