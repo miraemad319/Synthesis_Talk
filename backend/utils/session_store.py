@@ -251,3 +251,22 @@ def cleanup_old_sessions(days_old: int = 30):
         
         return len(sessions_to_remove)
 
+
+def add_document_metadata(session_id: str, filename: str, metadata: Dict[str, Any]):
+    """Add document metadata to session tracking"""
+    with session_lock:
+        session_meta = get_session_metadata(session_id)
+        
+        # Initialize document_metadata if it doesn't exist
+        if 'document_metadata' not in session_meta:
+            session_meta['document_metadata'] = {}
+        
+        # Store the document metadata
+        session_meta['document_metadata'][filename] = {
+            **metadata,
+            'added_at': datetime.now().isoformat()
+        }
+        
+        # Update session activity
+        update_session_activity(session_id, 'document')
+
