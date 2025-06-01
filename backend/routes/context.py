@@ -61,6 +61,19 @@ def _get_context_stats(context_id: str) -> Dict[str, int]:
     document_count = len(set(filename for _, filename in document_store.get(context_id, [])))
     return {"message_count": message_count, "document_count": document_count}
 
+def add_source_to_context(context_id: str, source_filename: str):
+    """
+    Add a source document to a specific context.
+    Updates the context's sources list and activity timestamp.
+    """
+    for ctx in _contexts:
+        if ctx["id"] == context_id:
+            if source_filename not in ctx["sources"]:
+                ctx["sources"].append(source_filename)
+            ctx["document_count"] = len(ctx["sources"])
+            _update_context_activity(context_id)
+            break
+
 @router.get("/context/", response_model=Dict[str, Any])
 async def get_contexts():
     """
