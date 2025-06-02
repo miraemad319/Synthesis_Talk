@@ -68,7 +68,6 @@ def update_session_activity(session_id: str, activity_type: str = None, **kwargs
 def add_message_to_history(session_id: str, message: Dict[str, Any]):
     """Add a message to conversation history with metadata tracking"""
     with session_lock:
-        # Ensure message has proper structure
         enhanced_message = {
             'role': message.get('role', 'user'),
             'content': message.get('content', ''),
@@ -251,7 +250,6 @@ def cleanup_old_sessions(days_old: int = 30):
         
         return len(sessions_to_remove)
 
-
 def add_document_metadata(session_id: str, filename: str, metadata: Dict[str, Any]):
     """Add document metadata to session tracking"""
     with session_lock:
@@ -269,4 +267,3 @@ def add_document_metadata(session_id: str, filename: str, metadata: Dict[str, An
         
         # Update session activity
         update_session_activity(session_id, 'document')
-

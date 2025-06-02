@@ -1,10 +1,10 @@
+// src/utils/api.js - FIXED VERSION
+
 import axios from 'axios';
 
 const api = axios.create({
-  // OPTION 1: Use Vite proxy - requests go to frontend port, proxy forwards to backend
+  // FIXED: Use environment variable properly
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1",
-  // OPTION 2: Direct backend connection (uncomment if proxy issues)
-  // baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
   timeout: 120000,
   withCredentials: true,
   headers: {
@@ -14,9 +14,6 @@ const api = axios.create({
 
 // Request counter for tracking concurrent requests
 let activeRequests = 0;
-
-// Request queue for managing concurrent operations
-const requestQueue = new Map();
 
 // Add request interceptor for debugging and request management
 api.interceptors.request.use(
@@ -86,7 +83,7 @@ api.interceptors.response.use(
     
     // Enhanced error message handling
     if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
-      error.userMessage = 'Unable to connect to server. Please check if the backend is running on the correct port.';
+      error.userMessage = 'Unable to connect to server. Please check if the backend is running on http://localhost:8000';
     } else if (error.code === 'ECONNABORTED') {
       error.userMessage = 'Request timed out. The operation may be taking longer than expected.';
     } else if (error.response?.status === 400) {
@@ -114,47 +111,204 @@ api.interceptors.response.use(
   }
 );
 
+// FIXED: Specialized API methods for SynthesisTalk with proper endpoint paths
+export const synthesisAPI = {
+  // Chat operations
+  chat: {
+    send: (message, context = {}) => 
+      api.post('/chat/', { message, ...context }),
+    
+    getHistory: () => 
+      api.get('/chat/history'),
+    
+    clearHistory: () => 
+      api.post('/chat/clear'),
+    
+    provideFeedback: (feedback) =>
+      api.post('/chat/feedback', feedback)
+  },
+  
+  // Document operations - FIXED: Use proper endpoints
+  documents: {
+    upload: (file, format = 'paragraph', onProgress) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const url = `/upload/?format=${format}`;
+      return apiUtils.uploadWithProgress(url, formData, onProgress);
+    },
+    
+    getHistory: () => 
+      api.get('/upload/sessions'),
+    
+    remove: (filename) => 
+      api.delete(`/upload/${encodeURIComponent(filename)}`)
+  },
+  
+  // Search operations - FIXED: Use proper query parameters
+  search: {
+    web: (query, filters = {}) => 
+      api.get('/search/', { params: { query, ...filters } }),
+    
+    documents: (query, filters = {}) => 
+      api.post('/search/documents', { query, ...filters }),
+    
+    combined: (query, filters = {}) => 
+      api.post('/search/combined', { query, ...filters }),
+    
+    verify: (claim) =>
+      api.post('/search/verify/', null, { params: { claim } })
+  },
+  
+  // Insights and analysis - FIXED: Handle async task-based insights
+  insights: {
+    generate: async (insight_type = 'comprehensive') => {
+      // Start background task
+      const startResponse = await api.post('/insights/', null, {
+        params: { insight_type }
+      });
+      
+      // Return task ID for polling
+      return startResponse;
+    },
+    
+    status: (taskId) =>
+      api.get(`/insights/status/${taskId}`),
+    
+    // Helper method to generate and wait for completion
+    generateAndWait: async (insight_type = 'comprehensive', pollInterval = 2000, maxWait = 120000) => {
+      const startResponse = await synthesisAPI.insights.generate(insight_type);
+      const taskId = startResponse.data.task_id;
+      
+      const startTime = Date.now();
+      
+      while (Date.now() - startTime < maxWait) {
+        const statusResponse = await synthesisAPI.insights.status(taskId);
+        const status = statusResponse.data;
+        
+        if (status.status === 'completed') {
+          return status.result;
+        }
+        
+        if (status.status === 'failed') {
+          throw new Error(status.message || 'Insight generation failed');
+        }
+        
+        // Wait before next poll
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      }
+      
+      throw new Error('Insight generation timed out');
+    },
+    
+    getSummary: (format = 'default') => 
+      api.get(`/insights/summary?format=${format}`)
+  },
+  
+  // Visualization - FIXED: Proper endpoint paths
+  visualization: {
+    generate: (type = 'auto', data = {}) => 
+      api.post('/visualize/', { type, ...data }),
+    
+    getKeywords: (top_k = 10) =>
+      api.get('/visualize/keywords', { params: { top_k } }),
+    
+    getSources: () =>
+      api.get('/visualize/sources'),
+    
+    getConversationFlow: () =>
+      api.get('/visualize/conversation-flow'),
+    
+    getTopicAnalysis: () =>
+      api.get('/visualize/topic-analysis'),
+    
+    getResearchTimeline: () =>
+      api.get('/visualize/research-timeline'),
+    
+    getAvailable: () =>
+      api.get('/visualize/')
+  },
+  
+  // Export operations - FIXED: Handle blob responses properly
+  export: {
+    conversation: (format = 'txt', include_metadata = true) => 
+      api.get('/export/', { 
+        params: { format, include_metadata },
+        responseType: 'blob' 
+      }),
+    
+    preview: (format = 'txt', lines = 20) =>
+      api.get('/export/preview', { params: { format, lines } }),
+    
+    formats: () => 
+      api.get('/export/formats')
+  },
+  
+  // Context management - FIXED: Proper request formats
+  context: {
+    get: () => api.get('/context/'),
+    
+    switch: (context_id) => api.post('/context/', { context_id }),
+    
+    create: (topic, description = '') => 
+      api.post('/context/new', { topic, description }),
+    
+    update: (context_id, updates) => 
+      api.put(`/context/${context_id}`, updates),
+    
+    delete: (context_id) => 
+      api.delete(`/context/${context_id}`),
+    
+    getSummary: (context_id) =>
+      api.get(`/context/${context_id}/summary`),
+    
+    getCurrent: () =>
+      api.get('/context/current')
+  },
+  
+  // Tools and utilities - FIXED: Proper parameter passing
+  tools: {
+    list: () => api.get('/tools/available/'),
+    
+    note: (note, category = 'general', tags = []) => 
+      api.post('/tools/note/', { note, category, tags }),
+    
+    explain: (query, detail_level = 'medium', format = 'paragraph') => 
+      api.post('/tools/explain/', { query, detail_level, format }),
+    
+    organize: (content_type = 'notes', organization_method = 'topic') => 
+      api.post('/tools/organize/', { content_type, organization_method }),
+    
+    analyze: (analysis_type, focus_areas = [], output_format = 'structured') =>
+      api.post('/tools/analyze/', { analysis_type, focus_areas, output_format }),
+    
+    getRecommendations: (query) =>
+      api.get('/tools/recommendations/', { params: { query } }),
+    
+    getUsageStats: () =>
+      api.get('/tools/usage/')
+  }
+};
+
 // Utility functions for the API
 export const apiUtils = {
   // Get active request count
   getActiveRequestCount: () => activeRequests,
   
-  // Cancel all pending requests
-  cancelAllRequests: () => {
-    requestQueue.forEach((source) => {
-      source.cancel('Operation cancelled by user');
-    });
-    requestQueue.clear();
-  },
-  
-  // Create a cancellable request
-  createCancellableRequest: (requestConfig) => {
-    const source = axios.CancelToken.source();
-    const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    requestQueue.set(requestId, source);
-    
-    const request = api({
-      ...requestConfig,
-      cancelToken: source.token
-    }).finally(() => {
-      requestQueue.delete(requestId);
-    });
-    
-    return {
-      request,
-      cancel: () => source.cancel('Request cancelled'),
-      requestId
-    };
-  },
-  
-  // Check if server is reachable
+  // Health check with better error reporting
   healthCheck: async () => {
     try {
+      // Test both root and health endpoints
       const response = await api.get('/health', { timeout: 5000 });
       return { healthy: true, response };
     } catch (error) {
-      return { healthy: false, error };
+      console.error('Health check failed:', error);
+      return { 
+        healthy: false, 
+        error: error.userMessage || error.message,
+        suggestion: error.code === 'ECONNREFUSED' 
+          ? 'Make sure the backend server is running on http://localhost:8000' 
+          : 'Check network connection and server status'
+      };
     }
   },
   
@@ -174,162 +328,80 @@ export const apiUtils = {
     });
   },
   
-  // Stream response for chat
-  streamResponse: async (url, data, onData, onError) => {
+  // Test all major endpoints
+  testEndpoints: async () => {
+    const results = {};
+    const endpoints = [
+      { name: 'Health', path: '/health' },
+      { name: 'Context', path: '/context/' },
+      { name: 'Upload Test', path: '/upload/test' },
+      { name: 'Chat Test', path: '/chat/test' },
+      { name: 'Visualizations', path: '/visualize/' },
+      { name: 'Export Formats', path: '/export/formats' }
+    ];
+    
+    for (const endpoint of endpoints) {
+      try {
+        const response = await api.get(endpoint.path, { timeout: 10000 });
+        results[endpoint.name] = { 
+          status: 'success', 
+          code: response.status,
+          data: response.data 
+        };
+      } catch (error) {
+        results[endpoint.name] = { 
+          status: 'failed', 
+          error: error.userMessage || error.message,
+          code: error.response?.status || 'NO_RESPONSE'
+        };
+      }
+    }
+    
+    return results;
+  },
+  
+  // Connection diagnostics
+  diagnoseConnection: async () => {
+    const diagnosis = {
+      timestamp: new Date().toISOString(),
+      baseURL: api.defaults.baseURL,
+      issues: [],
+      suggestions: []
+    };
+    
     try {
-      const response = await fetch(`${api.defaults.baseURL}${url}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...api.defaults.headers,
-        },
-        body: JSON.stringify(data),
-        credentials: 'include',
+      // Test basic connectivity
+      const response = await fetch(api.defaults.baseURL.replace('/api/v1', ''), {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'include'
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        diagnosis.issues.push(`Server returned ${response.status}: ${response.statusText}`);
       }
       
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        
-        for (const line of lines) {
-          if (line.trim() && line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              onData(data);
-            } catch (e) {
-              console.warn('Failed to parse SSE data:', line);
-            }
-          }
-        }
-      }
     } catch (error) {
-      onError(error);
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        diagnosis.issues.push('Cannot reach server - connection refused');
+        diagnosis.suggestions.push('Ensure backend server is running on http://localhost:8000');
+        diagnosis.suggestions.push('Check if port 8000 is not blocked by firewall');
+      } else {
+        diagnosis.issues.push(`Connection error: ${error.message}`);
+      }
     }
-  }
-};
-
-// Specialized API methods for SynthesisTalk
-export const synthesisAPI = {
-  // Chat operations
-  chat: {
-    send: (message, context = {}) => 
-      api.post('/api/v1/chat/', { message, ...context }),
     
-    stream: (message, context = {}, onData, onError) =>
-      apiUtils.streamResponse('/api/v1/chat/stream', { message, ...context }, onData, onError),
+    // Test CORS
+    try {
+      await api.get('/health', { timeout: 5000 });
+    } catch (error) {
+      if (error.message.includes('CORS')) {
+        diagnosis.issues.push('CORS policy blocking requests');
+        diagnosis.suggestions.push('Verify CORS configuration in backend allows localhost:3000');
+      }
+    }
     
-    getHistory: () => 
-      api.get('/api/v1/chat/history'),
-    
-    clearHistory: () => 
-      api.post('/api/v1/chat/clear'),
-    
-    provideFeedback: (feedback) =>
-      api.post('/api/v1/chat/feedback', feedback)
-  },
-  
-  // Document operations
-  documents: {
-    upload: (file, format = 'paragraph', onProgress) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      const url = `/api/v1/upload/?format=${format}`;
-      return apiUtils.uploadWithProgress(url, formData, onProgress);
-    },
-    
-    getHistory: () => 
-      api.get('/api/v1/upload/history'),
-    
-    remove: (filename) => 
-      api.delete(`/api/v1/upload/${encodeURIComponent(filename)}`)
-  },
-  
-  // Search operations
-  search: {
-    web: (query, filters = {}) => 
-      api.post('/api/v1/search/web', { query, ...filters }),
-    
-    documents: (query, filters = {}) => 
-      api.post('/api/v1/search/documents', { query, ...filters }),
-    
-    combined: (query, filters = {}) => 
-      api.post('/api/v1/search/combined', { query, ...filters })
-  },
-  
-  // Insights and analysis
-  insights: {
-    generate: (context = {}) => 
-      api.post('/api/v1/insights/', context),
-    
-    getTopics: () => 
-      api.get('/api/v1/insights/topics'),
-    
-    getConnections: () => 
-      api.get('/api/v1/insights/connections'),
-    
-    getSummary: (format = 'default') => 
-      api.get(`/api/v1/insights/summary?format=${format}`)
-  },
-  
-  // Visualization
-  visualization: {
-    generate: (type = 'auto', data = {}) => 
-      api.post('/api/v1/visualize/', { type, ...data }),
-    
-    getChart: (chartId) => 
-      api.get(`/api/v1/visualize/${chartId}`),
-    
-    getTypes: () => 
-      api.get('/api/v1/visualize/types')
-  },
-  
-  // Export operations
-  export: {
-    pdf: (format = 'summary') => 
-      api.get(`/api/v1/export/pdf?format=${format}`, { responseType: 'blob' }),
-    
-    markdown: (format = 'summary') => 
-      api.get(`/api/v1/export/markdown?format=${format}`),
-    
-    json: () => 
-      api.get('/api/v1/export/json'),
-    
-    formats: () => 
-      api.get('/api/v1/export/formats')
-  },
-  
-  // Context management
-  context: {
-    get: () => api.get('/api/v1/context/'),
-    
-    update: (context) => api.put('/api/v1/context/', context),
-    
-    clear: () => api.delete('/api/v1/context/'),
-    
-    addSource: (source) => api.post('/api/v1/context/sources', source),
-    
-    removeSource: (sourceId) => api.delete(`/api/v1/context/sources/${sourceId}`)
-  },
-  
-  // Tools and utilities
-  tools: {
-    list: () => api.get('/api/v1/tools/'),
-    
-    execute: (toolName, params = {}) => 
-      api.post(`/api/v1/tools/${toolName}`, params),
-    
-    getStatus: (toolName) => 
-      api.get(`/api/v1/tools/${toolName}/status`)
+    return diagnosis;
   }
 };
 

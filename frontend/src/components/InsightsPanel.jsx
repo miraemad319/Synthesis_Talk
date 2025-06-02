@@ -1,347 +1,229 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  LightBulbIcon, 
-  ArrowPathIcon, 
-  DocumentTextIcon, 
-  ListBulletIcon,
-  TableCellsIcon,
-  EyeIcon,
-  XCircleIcon,
-  CheckCircleIcon,
-  ClockIcon
-} from '@heroicons/react/24/outline';
-import api from '../utils/api';
+// Fix 1: Document Insights Panel with working Generate button
+import { useEffect, useState } from 'react';
+import axios from 'axios';
 
-export default function InsightsPanel() {
-  const [insights, setInsights] = useState({ 
-    paragraph: "", 
-    bullets: [],
-    structured: {},
-    metadata: {}
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [mode, setMode] = useState("paragraph");
-  const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [insightType, setInsightType] = useState("summary"); // summary, patterns, connections, recommendations
+function ContextPanel({ messages, activeTool, uploadedDocs, userId }) {
+  const [topic, setTopic] = useState('New Conversation');
+  const [sources, setSources] = useState([]);
+  const [isGeneratingTopic, setIsGeneratingTopic] = useState(false);
+  const [insights, setInsights] = useState([]);
+  const [isGeneratingInsights, setIsGeneratingInsights] = useState(false);
 
-  useEffect(() => {
-    // Auto-load insights if we have context
-    const hasData = insights.paragraph || insights.bullets.length > 0;
-    if (!hasData && !hasAttemptedLoad) {
-      // Check if we should auto-load based on available data
-      checkForAutoLoad();
+  // Generate insights from uploaded documents
+  const generateInsights = async () => {
+    if (uploadedDocs.length === 0) {
+      alert('No documents uploaded to generate insights from.');
+      return;
     }
-  }, []);
 
-  const checkForAutoLoad = async () => {
+    setIsGeneratingInsights(true);
+
     try {
-      // Check if there's context data available
-      const contextRes = await api.get('/context/');
-      const hasContext = contextRes.data.contexts?.length > 0;
-      
-      if (hasContext) {
-        // Auto-generate insights if context exists
-        fetchInsights();
+      // Get the last few assistant messages that contain document content
+      const documentMessages = messages
+        .filter(m => m.role === 'assistant' && 
+          (m.message.includes('📄 Uploaded') || m.message.includes('Summary:')))
+        .slice(-3); // Get last 3 document-related messages
+
+      if (documentMessages.length === 0) {
+        alert('No document content found in conversation history.');
+        setIsGeneratingInsights(false);
+        return;
       }
-    } catch (err) {
-      // Silent fail - user can manually trigger
-      console.log('Context check failed:', err);
+
+      // Combine document content for analysis
+      const combinedContent = documentMessages
+        .map(msg => msg.message)
+        .join('\n\n');
+
+      // Use the visualize tool to generate insights
+      const response = await axios.post('http://localhost:8000/tools/use', {
+        tool_name: 'visualize',
+        input_text: combinedContent,
+        user_id: userId
+      });
+
+      if (Array.isArray(response.data.result)) {
+        setInsights(response.data.result);
+      } else {
+        console.error('Unexpected response format:', response.data);
+        alert('Failed to generate insights. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error generating insights:', error);
+      alert('Error generating insights. Please check the console for details.');
+    } finally {
+      setIsGeneratingInsights(false);
     }
   };
 
-  const fetchInsights = async (type = insightType) => {
-    setLoading(true);
-    setError("");
-    setHasAttemptedLoad(true);
+  // Generate intelligent topic title
+  const generateTopicTitle = async (conversationHistory) => {
+    if (conversationHistory.length < 2) return 'New Conversation';
+    
+    setIsGeneratingTopic(true);
     
     try {
-      const res = await api.get("/insights/", {
-        params: { type, format: mode }
+      const relevantMessages = conversationHistory.slice(0, 6);
+      const conversationText = relevantMessages
+        .map(msg => `${msg.role}: ${msg.message}`)
+        .join('\n');
+
+      const response = await axios.post('http://localhost:8000/tools/generate_topic', {
+        conversation_text: conversationText
       });
+
+      let generatedTitle = response.data.topic;
       
-      setInsights({
-        paragraph: res.data.paragraph || "",
-        bullets: res.data.bullets || [],
-        structured: res.data.structured || {},
-        metadata: res.data.metadata || {}
-      });
-      setLastUpdated(new Date());
-    } catch (err) {
-      console.error('Insights fetch error:', err);
-      setError(err.userMessage || "Failed to load insights.");
-      
-      // Provide fallback demo data for development
-      if (err.code === 'ECONNREFUSED') {
-        setInsights({
-          paragraph: "This is a demo insight paragraph that would normally be generated by analyzing your uploaded documents and conversations. It provides a comprehensive overview of the key themes and findings from your research materials.",
-          bullets: [
-            "Key finding: Computational intelligence combines multiple AI approaches",
-            "Pattern identified: Machine learning algorithms show improved performance with larger datasets",
-            "Insight: Neural networks demonstrate strong pattern recognition capabilities",
-            "Recommendation: Consider hybrid approaches for complex problem-solving"
-          ],
-          structured: {
-            "Key Concepts": ["Machine Learning", "Neural Networks", "Pattern Recognition"],
-            "Main Themes": ["AI Applications", "Algorithm Performance", "Data Analysis"],
-            "Recommendations": ["Explore hybrid models", "Increase dataset size", "Test different architectures"]
-          },
-          metadata: {
-            sources_analyzed: 3,
-            confidence_score: 0.85,
-            generated_at: new Date().toISOString()
-          }
-        });
-        setLastUpdated(new Date());
+      generatedTitle = generatedTitle
+        .replace(/^["']|["']$/g, '')
+        .replace(/^Title:\s*/i, '')
+        .replace(/^\d+\.\s*/, '')
+        .trim();
+
+      if (!generatedTitle || generatedTitle.length > 50) {
+        generatedTitle = extractSimpleTopic(conversationHistory);
       }
-    }
-    setLoading(false);
-  };
 
-  const refreshInsights = () => {
-    fetchInsights(insightType);
-  };
-
-  const handleTypeChange = (newType) => {
-    setInsightType(newType);
-    if (hasAttemptedLoad) {
-      fetchInsights(newType);
+      setTopic(generatedTitle);
+    } catch (error) {
+      console.error('Topic generation failed:', error);
+      setTopic(extractSimpleTopic(conversationHistory));
+    } finally {
+      setIsGeneratingTopic(false);
     }
   };
 
-  const dismissError = () => setError('');
-
-  const formatTimestamp = (date) => {
-    return date?.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  const extractSimpleTopic = (conversationHistory) => {
+    const firstUserMessage = conversationHistory.find(m => m.role === 'user')?.message || '';
+    
+    const words = firstUserMessage.toLowerCase().split(' ');
+    const stopWords = ['what', 'how', 'why', 'when', 'where', 'is', 'are', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'about', 'can', 'could', 'would', 'should', 'tell', 'me', 'you', 'i', 'we', 'they'];
+    
+    const keyWords = words
+      .filter(word => word.length > 3 && !stopWords.includes(word))
+      .slice(0, 3);
+    
+    if (keyWords.length > 0) {
+      return keyWords.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    }
+    
+    return 'Research Discussion';
   };
 
-  const renderStructuredInsights = () => {
-    if (!insights.structured || Object.keys(insights.structured).length === 0) {
-      return (
-        <div className="text-gray-500 text-center py-8">
-          No structured insights available
-        </div>
+  useEffect(() => {
+    if (messages.length >= 2 && messages.length % 4 === 0) {
+      generateTopicTitle(messages);
+    } else if (messages.length === 2) {
+      generateTopicTitle(messages);
+    }
+
+    // Extract sources from assistant messages
+    const searchResults = messages
+      .filter(m => m.role === 'assistant' && m.message.includes("http"))
+      .flatMap(m =>
+        [...m.message.matchAll(/https?:\/\/[^\s)]+/g)].map(match => match[0])
       );
-    }
 
-    return (
-      <div className="space-y-6">
-        {Object.entries(insights.structured).map(([category, items]) => (
-          <div key={category} className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-semibold text-gray-900 mb-3 flex items-center">
-              <TableCellsIcon className="w-4 h-4 mr-2 text-blue-600" />
-              {category}
-            </h4>
-            <div className="space-y-2">
-              {Array.isArray(items) ? (
-                items.map((item, i) => (
-                  <div key={i} className="flex items-start">
-                    <div className="w-2 h-2 bg-blue-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                    <span className="text-gray-700">{item}</span>
-                  </div>
-                ))
-              ) : (
-                <div className="text-gray-700">{items}</div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const insightTypes = [
-    { id: 'summary', label: 'Summary', icon: DocumentTextIcon },
-    { id: 'patterns', label: 'Patterns', icon: EyeIcon },
-    { id: 'connections', label: 'Connections', icon: TableCellsIcon },
-    { id: 'recommendations', label: 'Recommendations', icon: CheckCircleIcon }
-  ];
-
-  const formatModes = [
-    { id: 'paragraph', label: 'Paragraph', icon: DocumentTextIcon },
-    { id: 'bullets', label: 'Bullets', icon: ListBulletIcon },
-    { id: 'structured', label: 'Structured', icon: TableCellsIcon }
-  ];
+    setSources([...new Set(searchResults)].slice(0, 5));
+  }, [messages]);
 
   return (
-    <div className="h-full flex flex-col bg-white">
-      {/* Header */}
-      <div className="p-4 border-b bg-white">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-            <LightBulbIcon className="w-5 h-5 mr-2 text-yellow-500" />
-            Research Insights
-          </h2>
-          <div className="flex items-center gap-2">
-            {lastUpdated && (
-              <div className="flex items-center text-xs text-gray-500 mr-3">
-                <ClockIcon className="w-3 h-3 mr-1" />
-                {formatTimestamp(lastUpdated)}
+    <div className="text-white text-sm space-y-3 h-full overflow-y-auto">
+      <div>
+        <p className="text-white/60 mb-1">Current Topic:</p>
+        <div className="bg-white/10 p-2 rounded-md relative">
+          {isGeneratingTopic && (
+            <div className="absolute right-2 top-2">
+              <div className="animate-spin h-3 w-3 border border-white/30 border-t-white rounded-full"></div>
+            </div>
+          )}
+          <span className={isGeneratingTopic ? 'opacity-50' : ''}>
+            {topic}
+          </span>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-white/60 mb-1">Last Used Tool:</p>
+        <div className="bg-white/10 p-2 rounded-md">
+          {activeTool || '---'}
+        </div>
+      </div>
+
+      <div>
+        <p className="text-white/60 mb-1">Message Count:</p>
+        <div className="bg-white/10 p-2 rounded-md">
+          {messages.length} messages
+        </div>
+      </div>
+
+      {/* FIX: Document Insights Section */}
+      <div>
+        <div className="flex justify-between items-center mb-1">
+          <p className="text-white/60">Document Insights:</p>
+          <button
+            onClick={generateInsights}
+            disabled={isGeneratingInsights || uploadedDocs.length === 0}
+            className={`text-xs px-2 py-1 rounded transition ${
+              uploadedDocs.length === 0 
+                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
+            }`}
+          >
+            {isGeneratingInsights ? 'Generating...' : 'Generate'}
+          </button>
+        </div>
+        
+        {uploadedDocs.length > 0 ? (
+          <div className="space-y-1">
+            {uploadedDocs.map((doc, i) => (
+              <div key={i} className="bg-white/10 p-2 rounded-md text-xs">
+                📄 {doc}
+              </div>
+            ))}
+            
+            {/* Display generated insights */}
+            {insights.length > 0 && (
+              <div className="mt-2 space-y-1">
+                <p className="text-white/60 text-xs">Key Topics:</p>
+                {insights.slice(0, 3).map((insight, i) => (
+                  <div key={i} className="bg-blue-900/30 p-2 rounded text-xs">
+                    <span className="font-medium">{insight.label}</span>
+                    <span className="text-blue-400 ml-2">({insight.count})</span>
+                  </div>
+                ))}
               </div>
             )}
-            <button
-              onClick={refreshInsights}
-              disabled={loading}
-              className="flex items-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <ArrowPathIcon className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-              {loading ? "Generating..." : hasAttemptedLoad ? "Refresh" : "Generate"}
-            </button>
           </div>
-        </div>
-
-        {/* Insight Type Selection */}
-        {hasAttemptedLoad && (
-          <div className="mb-4">
-            <div className="text-xs text-gray-600 mb-2">Insight Type:</div>
-            <div className="flex flex-wrap gap-1">
-              {insightTypes.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => handleTypeChange(id)}
-                  disabled={loading}
-                  className={`flex items-center px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                    insightType === id 
-                      ? "bg-blue-600 text-white" 
-                      : "bg-gray-100 hover:bg-gray-200 text-gray-700"
-                  }`}
-                >
-                  <Icon className="w-3 h-3 mr-1" />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Format Mode Selection */}
-        {hasAttemptedLoad && (
-          <div>
-            <div className="text-xs text-gray-600 mb-2">Display Format:</div>
-            <div className="flex flex-wrap gap-1">
-              {formatModes.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setMode(id)}
-                  className={`flex items-center px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                    mode === id 
-                      ? "bg-gray-800 text-white" 
-                      : "bg-gray-100 hover:bg-gray-200 text-gray-700"
-                  }`}
-                >
-                  <Icon className="w-3 h-3 mr-1" />
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+        ) : (
+          <div className="bg-white/10 p-2 rounded-md">No documents uploaded</div>
         )}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-auto p-4">
-        {/* Loading State */}
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-            <div className="text-gray-600 mb-2">Analyzing your research...</div>
-            <div className="text-sm text-gray-500">This may take a few moments</div>
-          </div>
-        )}
-
-        {/* Error State */}
-        {error && (
-          <div className="mb-4">
-            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-              <XCircleIcon className="w-5 h-5 mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <div className="font-medium mb-1">Failed to generate insights</div>
-                <div className="text-sm">{error}</div>
-              </div>
-              <button 
-                onClick={dismissError}
-                className="text-red-500 hover:text-red-700"
+      <div>
+        <p className="text-white/60 mb-1">Sources Found:</p>
+        {sources.length > 0 ? (
+          <div className="space-y-1 max-h-32 overflow-y-auto">
+            {sources.map((url, i) => (
+              <a
+                key={i}
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="block text-blue-400 hover:text-blue-300 underline text-xs truncate p-1 bg-white/5 rounded"
+                title={url}
               >
-                <XCircleIcon className="w-4 h-4" />
-              </button>
-            </div>
+                {url.replace(/https?:\/\/(www\.)?/, '').split('/')[0]}
+              </a>
+            ))}
           </div>
-        )}
-
-        {/* Content Display */}
-        {!loading && !error && hasAttemptedLoad && (
-          <div className="space-y-4">
-            {/* Metadata */}
-            {insights.metadata && Object.keys(insights.metadata).length > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                <div className="text-xs text-blue-800 font-medium mb-2">Analysis Summary</div>
-                <div className="flex flex-wrap gap-4 text-xs text-blue-700">
-                  {insights.metadata.sources_analyzed && (
-                    <span>{insights.metadata.sources_analyzed} sources analyzed</span>
-                  )}
-                  {insights.metadata.confidence_score && (
-                    <span>Confidence: {Math.round(insights.metadata.confidence_score * 100)}%</span>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Paragraph Mode */}
-            {mode === "paragraph" && (
-              <div className="prose max-w-none">
-                <div className="text-gray-800 leading-relaxed whitespace-pre-wrap">
-                  {insights.paragraph || "No paragraph insights available. Try uploading documents or starting a conversation to generate insights."}
-                </div>
-              </div>
-            )}
-
-            {/* Bullets Mode */}
-            {mode === "bullets" && (
-              <div className="space-y-3">
-                {insights.bullets.length > 0 ? (
-                  insights.bullets.map((bullet, i) => (
-                    <div key={i} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                      <div className="text-gray-800 leading-relaxed">{bullet}</div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-gray-500 text-center py-8">
-                    No bullet point insights available
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Structured Mode */}
-            {mode === "structured" && renderStructuredInsights()}
-          </div>
-        )}
-
-        {/* Empty State */}
-        {!hasAttemptedLoad && (
-          <div className="text-center py-16">
-            <div className="text-gray-400 mb-6">
-              <LightBulbIcon className="w-20 h-20 mx-auto mb-4 text-gray-300" />
-              <div className="text-lg text-gray-600 mb-2">Ready to generate insights</div>
-              <div className="text-sm text-gray-500 max-w-md mx-auto">
-                Upload research documents and engage in conversations to generate 
-                intelligent insights about your research topics
-              </div>
-            </div>
-            <button
-              onClick={refreshInsights}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-            >
-              Generate Your First Insights
-            </button>
-          </div>
+        ) : (
+          <div className="bg-white/10 p-2 rounded-md">No sources found</div>
         )}
       </div>
     </div>
   );
 }
+
+export default ContextPanel;

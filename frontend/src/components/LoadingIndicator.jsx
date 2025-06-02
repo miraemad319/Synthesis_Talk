@@ -230,7 +230,7 @@ export default function LoadingIndicator() {
         </div>
       </div>
 
-      <style jsx>{`
+       <style>{`
         @keyframes fade-in-out {
           0%, 100% { opacity: 0.7; }
           50% { opacity: 1; }

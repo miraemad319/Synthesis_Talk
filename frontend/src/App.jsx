@@ -1,3 +1,6 @@
+// IMMEDIATE FIX 3: src/App.jsx
+// Replace your current App.jsx with this fixed version
+
 import React, { useRef, useState, useEffect } from 'react';
 import ChatWindow from './components/ChatWindow';
 import UploadArea from './components/UploadArea';
@@ -19,7 +22,7 @@ export default function App() {
   useEffect(() => {
     const checkConnection = async () => {
       try {
-        const response = await fetch(import.meta.env.VITE_API_URL || "http://localhost:8000");
+        const response = await fetch("http://localhost:8000/health");
         setIsConnected(response.ok);
       } catch {
         setIsConnected(false);
@@ -44,7 +47,7 @@ export default function App() {
       {/* Connection Status Banner */}
       {!isConnected && (
         <div className="absolute top-0 left-0 right-0 bg-red-500 text-white text-center py-2 text-sm z-50">
-          ⚠️ Backend connection failed. Please ensure the server is running.
+          ⚠️ Backend connection failed. Please ensure the server is running on port 8000.
         </div>
       )}
 
@@ -74,10 +77,10 @@ export default function App() {
         <ContextSidebar ref={contextSidebarRef} />
       </div>
 
-      {/* Center: Upload + Chat */}
-      <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Center: Upload + Chat - FIXED LAYOUT */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Header with mobile menu button */}
-        <div className="bg-white border-b p-4 lg:hidden">
+        <div className="bg-white border-b p-4 lg:hidden flex-shrink-0">
           <button
             onClick={() => setSidebarOpen(true)}
             className="p-2 rounded-md hover:bg-gray-100"
@@ -86,21 +89,21 @@ export default function App() {
           </button>
         </div>
 
-        {/* Upload Area */}
-        <div className="border-b bg-white">
-          <UploadArea onUploaded={handleFileUploaded} />
+        {/* FIXED: Upload Area - Compact and scrollable */}
+        <div className="border-b bg-white flex-shrink-0 max-h-48 overflow-y-auto">
+          <UploadArea onUploaded={handleFileUploaded} className="p-4" />
         </div>
 
-        {/* Chat Window */}
-        <div className="flex-1 flex flex-col">
+        {/* FIXED: Chat Window - Takes remaining space and scrollable */}
+        <div className="flex-1 min-h-0 overflow-hidden">
           <ChatWindow />
         </div>
       </div>
 
-      {/* Right: Insights + Visualization + Tools */}
+      {/* Right: Insights + Visualization + Tools - FIXED LAYOUT */}
       <div className="w-96 border-l flex flex-col overflow-hidden bg-white hidden lg:flex">
         {/* Tab Navigation */}
-        <div className="border-b bg-gray-50">
+        <div className="border-b bg-gray-50 flex-shrink-0">
           <div className="flex">
             {rightPanelTabs.map((tab) => (
               <button
@@ -121,8 +124,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* Panel Content */}
-        <div className="flex-1 overflow-hidden">
+        {/* Panel Content - FIXED: Proper scrolling */}
+        <div className="flex-1 min-h-0 overflow-hidden">
           {activeRightPanel === 'insights' && <InsightsPanel />}
           {activeRightPanel === 'visualization' && <VisualizationPanel />}
           {activeRightPanel === 'search' && <SearchPanel />}
@@ -130,10 +133,10 @@ export default function App() {
         </div>
       </div>
 
-      {/* Mobile Right Panel - Bottom Sheet Style */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t max-h-96 overflow-hidden">
+      {/* Mobile Right Panel - Bottom Sheet Style - FIXED */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t max-h-96 overflow-hidden z-30">
         {/* Mobile Tab Navigation */}
-        <div className="flex border-b bg-gray-50">
+        <div className="flex border-b bg-gray-50 flex-shrink-0">
           {rightPanelTabs.map((tab) => (
             <button
               key={tab.id}
@@ -154,8 +157,8 @@ export default function App() {
           ))}
         </div>
 
-        {/* Mobile Panel Content */}
-        <div className="flex-1 overflow-auto">
+        {/* Mobile Panel Content - FIXED: Scrollable */}
+        <div className="flex-1 overflow-auto min-h-0">
           {activeRightPanel === 'insights' && <InsightsPanel />}
           {activeRightPanel === 'visualization' && <VisualizationPanel />}
           {activeRightPanel === 'search' && <SearchPanel />}
@@ -168,4 +171,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -8,7 +8,7 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import { motion, AnimatePresence } from 'framer-motion';
-import api from '../utils/api';
+import { synthesisAPI } from '../utils/api';
 
 const ACCEPTED_TYPES = {
   'application/pdf': ['.pdf'],
@@ -31,6 +31,8 @@ export default function UploadArea({ onUploaded, className = '' }) {
   });
 
   const onDrop = useCallback((acceptedFiles, rejectedFiles) => {
+    console.log('📁 Files dropped:', { acceptedFiles, rejectedFiles });
+
     // Handle rejected files
     if (rejectedFiles.length > 0) {
       const newErrors = rejectedFiles.map(({ file, errors }) => ({
@@ -45,6 +47,7 @@ export default function UploadArea({ onUploaded, className = '' }) {
 
     // Handle accepted files
     if (acceptedFiles.length > 0) {
+      console.log('✅ Accepted files:', acceptedFiles.map(f => f.name));
       setUploadState(prev => ({
         ...prev,
         files: [...prev.files, ...acceptedFiles],
@@ -65,60 +68,95 @@ export default function UploadArea({ onUploaded, className = '' }) {
   const uploadFiles = async () => {
     if (uploadState.files.length === 0) return;
 
-    setUploadState(prev => ({ ...prev, uploading: true, progress: {} }));
+    console.log('🚀 Starting upload process for files:', uploadState.files.map(f => f.name));
+    setUploadState(prev => ({ ...prev, uploading: true, progress: {}, errors: [], success: [] }));
 
-    const uploadPromises = uploadState.files.map(async (file) => {
-      const formData = new FormData();
-      formData.append('file', file);
-
+    const uploadPromises = uploadState.files.map(async (file, index) => {
+      console.log(`📤 Uploading file ${index + 1}/${uploadState.files.length}: ${file.name}`);
+      
       try {
-        const response = await api.post('/upload/', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          onUploadProgress: (progressEvent) => {
-            const progress = Math.round(
-              (progressEvent.loaded / progressEvent.total) * 100
-            );
+        // Initialize progress
+        setUploadState(prev => ({
+          ...prev,
+          progress: { ...prev.progress, [file.name]: 0 }
+        }));
+
+        const response = await synthesisAPI.documents.upload(
+          file, 
+          'paragraph',
+          (progress) => {
+            console.log(`📊 Upload progress for ${file.name}: ${progress}%`);
             setUploadState(prev => ({
               ...prev,
               progress: { ...prev.progress, [file.name]: progress }
             }));
-          },
-        });
+          }
+        );
 
+        console.log(`✅ Upload successful for ${file.name}:`, response.data);
         return { file: file.name, success: true, data: response.data };
+
       } catch (error) {
+        console.error(`❌ Upload failed for ${file.name}:`, error);
+        
+        let errorMessage = 'Upload failed';
+        if (error.response?.data?.detail) {
+          errorMessage = error.response.data.detail;
+        } else if (error.userMessage) {
+          errorMessage = error.userMessage;
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+
         return { 
           file: file.name, 
           success: false, 
-          error: error.response?.data?.detail || 'Upload failed' 
+          error: errorMessage
         };
       }
     });
 
-    const results = await Promise.all(uploadPromises);
-    
-    const successfulUploads = results.filter(r => r.success);
-    const failedUploads = results.filter(r => !r.success);
+    try {
+      console.log('⏳ Waiting for all uploads to complete...');
+      const results = await Promise.all(uploadPromises);
+      
+      const successfulUploads = results.filter(r => r.success);
+      const failedUploads = results.filter(r => !r.success);
 
-    setUploadState(prev => ({
-      ...prev,
-      uploading: false,
-      files: [],
-      progress: {},
-      success: successfulUploads.map(r => r.file),
-      errors: [...prev.errors, ...failedUploads.map(r => ({ file: r.file, message: r.error }))]
-    }));
+      console.log('📊 Upload results:', { 
+        successful: successfulUploads.length, 
+        failed: failedUploads.length 
+      });
 
-    // Clear success messages after 3 seconds
-    if (successfulUploads.length > 0) {
-      setTimeout(() => {
-        setUploadState(prev => ({ ...prev, success: [] }));
-      }, 3000);
-    }
+      setUploadState(prev => ({
+        ...prev,
+        uploading: false,
+        files: [], // Clear files after upload attempt
+        progress: {},
+        success: successfulUploads.map(r => r.file),
+        errors: [...prev.errors, ...failedUploads.map(r => ({ file: r.file, message: r.error }))]
+      }));
 
-    // Notify parent component
-    if (onUploaded && successfulUploads.length > 0) {
-      onUploaded(successfulUploads);
+      // Clear success messages after 5 seconds
+      if (successfulUploads.length > 0) {
+        setTimeout(() => {
+          setUploadState(prev => ({ ...prev, success: [] }));
+        }, 5000);
+      }
+
+      // Notify parent component
+      if (onUploaded && successfulUploads.length > 0) {
+        console.log('📢 Notifying parent component of successful uploads');
+        onUploaded(successfulUploads);
+      }
+
+    } catch (error) {
+      console.error('💥 Critical error during upload process:', error);
+      setUploadState(prev => ({
+        ...prev,
+        uploading: false,
+        errors: [...prev.errors, { file: 'System', message: 'Critical upload error occurred' }]
+      }));
     }
   };
 
@@ -136,59 +174,47 @@ export default function UploadArea({ onUploaded, className = '' }) {
     }));
   };
 
-  const getFileIcon = (file) => {
-    if (file.type.includes('pdf')) return '📄';
-    if (file.type.includes('text')) return '📝';
-    if (file.type.includes('word')) return '📃';
-    if (file.type.includes('csv')) return '📊';
-    return '📄';
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   return (
-    <div className={`space-y-4 ${className}`}>
-      {/* Drop Zone */}
+    <div className={`space-y-3 ${className}`}>
+      {/* COMPACT Drop Zone */}
       <motion.div
         {...getRootProps()}
         className={`
-          relative border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
+          relative border-2 border-dashed rounded-lg p-4 text-center cursor-pointer
           transition-all duration-200 ease-in-out
           ${isDragActive 
-            ? 'border-primary-500 bg-primary-50 scale-105' 
+            ? 'border-primary-500 bg-primary-50' 
             : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
           }
           ${uploadState.uploading ? 'pointer-events-none opacity-60' : ''}
         `}
-        whileHover={{ scale: uploadState.uploading ? 1 : 1.02 }}
-        whileTap={{ scale: uploadState.uploading ? 1 : 0.98 }}
+        whileHover={{ scale: uploadState.uploading ? 1 : 1.01 }}
       >
         <input {...getInputProps()} />
         
-        <div className="space-y-4">
-          <CloudArrowUpIcon className="mx-auto h-12 w-12 text-gray-400" />
+        <div className="flex items-center justify-center space-x-2">
+          <CloudArrowUpIcon className="h-6 w-6 text-gray-400" />
           
           {isDragActive ? (
-            <div>
-              <p className="text-lg font-medium text-primary-600">
-                Drop files here
-              </p>
-              <p className="text-sm text-primary-500">
-                Release to upload
-              </p>
-            </div>
+            <p className="text-sm font-medium text-primary-600">Drop files here</p>
           ) : (
-            <div>
-              <p className="text-lg font-medium text-gray-900">
-                Drop files here or click to browse
-              </p>
-              <p className="text-sm text-gray-500">
-                Supports PDF, TXT, DOC, DOCX, MD, CSV (max 10MB each)
-              </p>
+            <div className="flex items-center space-x-2">
+              <p className="text-sm font-medium text-gray-900">Drop files or click</p>
+              <span className="text-xs text-gray-500">(PDF, TXT, DOC, DOCX)</span>
             </div>
           )}
         </div>
       </motion.div>
 
-      {/* File List */}
+      {/* COMPACT File List */}
       <AnimatePresence>
         {uploadState.files.length > 0 && (
           <motion.div
@@ -198,59 +224,58 @@ export default function UploadArea({ onUploaded, className = '' }) {
             className="space-y-2"
           >
             <div className="flex items-center justify-between">
-              <h4 className="font-medium text-gray-900">
-                Files to upload ({uploadState.files.length})
-              </h4>
+              <span className="text-sm font-medium text-gray-700">
+                {uploadState.files.length} file(s) ready
+              </span>
               <button
                 onClick={uploadFiles}
                 disabled={uploadState.uploading}
-                className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-3 py-1 bg-primary-600 text-white rounded text-sm hover:bg-primary-700 disabled:opacity-50"
               >
-                {uploadState.uploading ? 'Uploading...' : 'Upload All'}
+                {uploadState.uploading ? 'Uploading...' : 'Upload'}
               </button>
             </div>
 
-            <div className="space-y-2 max-h-32 overflow-y-auto">
+            <div className="max-h-24 overflow-y-auto space-y-1">
               {uploadState.files.map((file) => (
                 <motion.div
                   key={file.name}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-md"
+                  className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm"
                 >
-                  <div className="flex items-center space-x-3">
-                    <span className="text-xl">{getFileIcon(file)}</span>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 truncate max-w-48">
-                        {file.name}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {(file.size / 1024 / 1024).toFixed(2)} MB
-                      </p>
-                    </div>
+                  <div className="flex items-center space-x-2 flex-1 min-w-0">
+                    <DocumentTextIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                    <span className="truncate font-medium" title={file.name}>
+                      {file.name}
+                    </span>
+                    <span className="text-xs text-gray-500 flex-shrink-0">
+                      {formatFileSize(file.size)}
+                    </span>
                   </div>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 flex-shrink-0">
                     {uploadState.progress[file.name] !== undefined && (
-                      <div className="w-20">
-                        <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div className="w-16">
+                        <div className="w-full bg-gray-200 rounded-full h-1">
                           <div
-                            className="bg-primary-600 h-2 rounded-full transition-all duration-300"
+                            className="bg-primary-600 h-1 rounded-full transition-all duration-300"
                             style={{ width: `${uploadState.progress[file.name]}%` }}
                           />
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <span className="text-xs text-gray-500">
                           {uploadState.progress[file.name]}%
-                        </p>
+                        </span>
                       </div>
                     )}
                     
                     {!uploadState.uploading && (
                       <button
                         onClick={() => removeFile(file.name)}
-                        className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                        className="p-1 text-gray-400 hover:text-red-500"
+                        title="Remove file"
                       >
-                        <XMarkIcon className="h-4 w-4" />
+                        <XMarkIcon className="h-3 w-3" />
                       </button>
                     )}
                   </div>
@@ -261,7 +286,7 @@ export default function UploadArea({ onUploaded, className = '' }) {
         )}
       </AnimatePresence>
 
-      {/* Success Messages */}
+      {/* COMPACT Success Messages */}
       <AnimatePresence>
         {uploadState.success.length > 0 && (
           <motion.div
@@ -271,21 +296,23 @@ export default function UploadArea({ onUploaded, className = '' }) {
             className="space-y-1"
           >
             {uploadState.success.map((fileName) => (
-              <div
+              <motion.div
                 key={fileName}
-                className="flex items-center space-x-2 p-2 bg-green-50 border border-green-200 rounded-md"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex items-center space-x-2 p-2 bg-green-50 border border-green-200 rounded text-sm"
               >
-                <CheckCircleIcon className="h-4 w-4 text-green-500" />
-                <p className="text-sm text-green-700">
+                <CheckCircleIcon className="h-4 w-4 text-green-500 flex-shrink-0" />
+                <span className="text-green-700 flex-1 truncate">
                   {fileName} uploaded successfully
-                </p>
-              </div>
+                </span>
+              </motion.div>
             ))}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Error Messages */}
+      {/* COMPACT Error Messages */}
       <AnimatePresence>
         {uploadState.errors.length > 0 && (
           <motion.div
@@ -295,23 +322,27 @@ export default function UploadArea({ onUploaded, className = '' }) {
             className="space-y-1"
           >
             {uploadState.errors.map((error, index) => (
-              <div
+              <motion.div
                 key={`${error.file}-${index}`}
-                className="flex items-center justify-between p-2 bg-red-50 border border-red-200 rounded-md"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="flex items-start justify-between p-2 bg-red-50 border border-red-200 rounded text-sm"
               >
-                <div className="flex items-center space-x-2">
-                  <ExclamationTriangleIcon className="h-4 w-4 text-red-500" />
-                  <p className="text-sm text-red-700">
-                    <span className="font-medium">{error.file}:</span> {error.message}
-                  </p>
+                <div className="flex items-start space-x-2 flex-1 min-w-0">
+                  <ExclamationTriangleIcon className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-red-700 font-medium">{error.file}:</span>
+                    <span className="text-red-600 ml-1">{error.message}</span>
+                  </div>
                 </div>
                 <button
                   onClick={() => clearError(error.file)}
-                  className="p-1 text-red-400 hover:text-red-600 transition-colors"
+                  className="p-1 text-red-400 hover:text-red-600 flex-shrink-0"
+                  title="Dismiss error"
                 >
                   <XMarkIcon className="h-3 w-3" />
                 </button>
-              </div>
+              </motion.div>
             ))}
           </motion.div>
         )}
@@ -319,4 +350,3 @@ export default function UploadArea({ onUploaded, className = '' }) {
     </div>
   );
 }
-

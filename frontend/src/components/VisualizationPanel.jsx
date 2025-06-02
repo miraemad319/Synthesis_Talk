@@ -29,7 +29,7 @@ import {
   Settings,
   ChevronDown
 } from 'lucide-react';
-import api from '../utils/api';
+import { synthesisAPI } from '../utils/api';
 
 const CHART_TYPES = {
   bar: { name: 'Bar Chart', icon: BarChart3, component: 'BarChart' },
@@ -51,6 +51,7 @@ export default function VisualizationPanel() {
   const [chartTitle, setChartTitle] = useState('Data Visualization');
   const [dataKey, setDataKey] = useState('value');
   const [nameKey, setNameKey] = useState('name');
+  const [availableVisualizations, setAvailableVisualizations] = useState([]);
 
   // Auto-detect data keys when data changes
   useEffect(() => {
@@ -71,19 +72,57 @@ export default function VisualizationPanel() {
     }
   }, [data]);
 
-  const fetchVisualization = async () => {
+  const fetchVisualization = async (type = 'keywords') => {
     setLoading(true);
     setError("");
     setHasAttemptedLoad(true);
     
     try {
-      const res = await api.get("/visualize/");
-      const responseData = res.data.data || [];
+      let response;
+      
+      // Try different visualization endpoints based on type
+      switch (type) {
+        case 'keywords':
+          response = await synthesisAPI.visualization.getKeywords(10);
+          setChartTitle('Top Keywords');
+          break;
+        case 'sources':
+          response = await synthesisAPI.visualization.getSources();
+          setChartTitle('Document Sources');
+          break;
+        case 'conversation':
+          response = await synthesisAPI.visualization.getConversationFlow();
+          setChartTitle('Conversation Flow');
+          break;
+        case 'topics':
+          response = await synthesisAPI.visualization.getTopicAnalysis();
+          setChartTitle('Topic Analysis');
+          break;
+        case 'timeline':
+          response = await synthesisAPI.visualization.getResearchTimeline();
+          setChartTitle('Research Timeline');
+          break;
+        default:
+          // Try the main visualization endpoint
+          response = await synthesisAPI.visualization.getAvailable();
+          if (response.data.available_visualizations?.length > 0) {
+            setAvailableVisualizations(response.data.available_visualizations);
+            // Try to fetch the first available visualization
+            const firstViz = response.data.available_visualizations[0];
+            const vizType = firstViz.endpoint.split('/').pop();
+            return fetchVisualization(vizType);
+          } else {
+            // Fallback to keywords if no specific visualizations available
+            return fetchVisualization('keywords');
+          }
+      }
+      
+      const responseData = response.data.data || response.data || [];
       setData(responseData);
       
       // Set chart title if provided
-      if (res.data.title) {
-        setChartTitle(res.data.title);
+      if (response.data.title) {
+        setChartTitle(response.data.title);
       }
       
       // Auto-select best chart type based on data
@@ -102,7 +141,21 @@ export default function VisualizationPanel() {
     } catch (err) {
       console.error('Visualization fetch error:', err);
       setError(err.response?.data?.detail || err.userMessage || "Failed to load visualization.");
-      setData([]);
+      
+      // Provide fallback demo data for development
+      if (err.code === 'ECONNREFUSED' || err.response?.status === 404) {
+        const demoData = [
+          { name: 'Research', value: 45 },
+          { name: 'Analysis', value: 32 },
+          { name: 'Documents', value: 28 },
+          { name: 'Insights', value: 21 },
+          { name: 'Synthesis', value: 15 }
+        ];
+        setData(demoData);
+        setChartTitle('Demo Visualization');
+      } else {
+        setData([]);
+      }
     }
     setLoading(false);
   };
@@ -339,7 +392,7 @@ export default function VisualizationPanel() {
           )}
           
           <button
-            onClick={fetchVisualization}
+            onClick={() => fetchVisualization()}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
           >
@@ -348,6 +401,28 @@ export default function VisualizationPanel() {
           </button>
         </div>
       </div>
+
+      {/* Visualization Type Selector */}
+      {availableVisualizations.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-medium text-gray-700 mb-3">Available Visualizations:</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {availableVisualizations.map((viz) => (
+              <button
+                key={viz.endpoint}
+                onClick={() => {
+                  const vizType = viz.endpoint.split('/').pop();
+                  fetchVisualization(vizType);
+                }}
+                className="p-3 text-left bg-white rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+              >
+                <div className="font-medium text-sm text-gray-900">{viz.name}</div>
+                <div className="text-xs text-gray-500 mt-1">{viz.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Settings Panel */}
       {showSettings && data.length > 0 && (
@@ -526,7 +601,7 @@ export default function VisualizationPanel() {
           </div>
           
           <button
-            onClick={fetchVisualization}
+            onClick={() => fetchVisualization()}
             className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-sm"
           >
             Generate First Visualization

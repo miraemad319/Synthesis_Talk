@@ -1,215 +1,289 @@
-import React, { useState } from 'react';
-import { MagnifyingGlassIcon, LinkIcon, CalendarIcon } from '@heroicons/react/24/outline';
-import api from '../utils/api';
+// Fix 3: Enhanced MessageBubble with working Discuss/Copy for search results
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
 
-export default function SearchPanel() {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [searchHistory, setSearchHistory] = useState([]);
+const COLORS = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22'];
 
-  const performSearch = async (searchQuery = query) => {
-    if (!searchQuery.trim()) return;
-    
-    setLoading(true);
-    setError('');
-    
-    try {
-      const res = await api.post('/search/', { query: searchQuery });
-      setResults(res.data.results || []);
-      
-      // Add to search history
-      setSearchHistory(prev => [
-        { query: searchQuery, timestamp: new Date() },
-        ...prev.slice(0, 4) // Keep only last 5 searches
-      ]);
-      
-    } catch (err) {
-      console.error('Search error:', err);
-      setError(err.userMessage || 'Search failed. Please try again.');
-      setResults([]);
-    }
-    setLoading(false);
-  };
+const CustomTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-gray-800 p-3 rounded-lg border border-white/20 shadow-lg">
+        <p className="text-white font-medium">{label}</p>
+        <p className="text-blue-400">
+          Count: <span className="font-bold">{payload[0].value}</span>
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    performSearch();
-  };
-
-  const formatDate = (dateStr) => {
-    try {
-      return new Date(dateStr).toLocaleDateString();
-    } catch {
-      return 'Recent';
-    }
-  };
-
-  const truncateText = (text, maxLength = 150) => {
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength) + '...';
-  };
+const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, label }) => {
+  if (percent < 0.05) return null;
+  
+  const RADIAN = Math.PI / 180;
+  const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
 
   return (
-    <div className="p-4 flex-1 overflow-auto bg-white">
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold mb-3">Web Search</h2>
-        
-        {/* Search Form */}
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="relative">
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search for additional information..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              disabled={loading}
-            />
-            <MagnifyingGlassIcon className="h-5 w-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-          </div>
-          
-          <button
-            type="submit"
-            disabled={loading || !query.trim()}
-            className="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? 'Searching...' : 'Search Web'}
-          </button>
-        </form>
+    <text 
+      x={x} 
+      y={y} 
+      fill="white" 
+      textAnchor={x > cx ? 'start' : 'end'} 
+      dominantBaseline="central"
+      fontSize="12"
+      fontWeight="bold"
+    >
+      {`${(percent * 100).toFixed(0)}%`}
+    </text>
+  );
+};
 
-        {/* Search History */}
-        {searchHistory.length > 0 && (
-          <div className="mt-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Recent Searches</h3>
-            <div className="space-y-1">
-              {searchHistory.map((item, index) => (
-                <button
-                  key={index}
-                  onClick={() => {
-                    setQuery(item.query);
-                    performSearch(item.query);
-                  }}
-                  className="w-full text-left text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-colors"
-                >
-                  {item.query}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+function MessageBubble({ role, message, data, onDiscuss, onCopy }) {
+  const isUser = role === 'user';
+  
+  // Check if message contains search results
+  const isSearchResult = message.includes('🧠 Summary:') && message.includes('🔗 Sources:');
+  
+  // Check if message contains a Markdown-style link
+  const isMarkdownLink = /\[.*?\]\(.*?\)/.test(message);
+  const linkText = message.match(/\[([^\]]+)\]/)?.[1];
+  const linkHref = message.match(/\((.*?)\)/)?.[1];
 
-      {/* Loading State */}
-      {loading && (
-        <div className="flex items-center justify-center py-8">
-          <div className="text-gray-500">Searching the web...</div>
+  // Copy message content to clipboard
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message);
+      // You could add a toast notification here
+      console.log('Message copied to clipboard');
+    } catch (err) {
+      console.error('Failed to copy message:', err);
+    }
+  };
+
+  // Start a discussion based on the message content
+  const handleDiscuss = () => {
+    if (onDiscuss) {
+      // Extract key points for discussion
+      let discussionTopic = '';
+      if (isSearchResult) {
+        const summaryMatch = message.match(/🧠 Summary:\n(.*?)\n\n🔗 Sources:/s);
+        discussionTopic = summaryMatch ? summaryMatch[1] : message.slice(0, 200);
+      } else {
+        discussionTopic = message.slice(0, 200);
+      }
+      onDiscuss(discussionTopic);
+    }
+  };
+
+  // Enhanced visualization rendering
+  const renderVisualization = (chartData) => {
+    if (!chartData || !Array.isArray(chartData) || chartData.length === 0) {
+      return (
+        <div className="w-full p-4 bg-gray-800/30 rounded-lg border border-white/10">
+          <h3 className="text-lg font-bold mb-2 text-white">📊 Research Insights</h3>
+          <p className="text-gray-400">No data available for visualization</p>
         </div>
-      )}
+      );
+    }
 
-      {/* Error State */}
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm mb-4">
-          {error}
-        </div>
-      )}
+    const sortedData = [...chartData].sort((a, b) => (b.count || 0) - (a.count || 0));
+    
+    const processedData = sortedData.map(item => ({
+      ...item,
+      label: item.label && item.label.length > 12 
+        ? item.label.substring(0, 12) + '...' 
+        : item.label,
+      originalLabel: item.label
+    }));
 
-      {/* Search Results */}
-      {!loading && !error && results.length > 0 && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium text-gray-700">
-            Found {results.length} result{results.length !== 1 ? 's' : ''}
+    const shouldUsePieChart = chartData.length <= 5 && chartData.every(item => item.count > 0);
+    const maxCount = Math.max(...chartData.map(item => item.count || 0));
+
+    return (
+      <div className="w-full max-w-3xl">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            📊 Research Insights
+            <span className="text-sm font-normal text-gray-400">
+              ({chartData.length} topics)
+            </span>
           </h3>
           
-          {results.map((result, index) => (
-            <div key={index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-              <div className="space-y-2">
-                {/* Title and URL */}
-                <div>
-                  <h4 className="font-medium text-gray-900 hover:text-blue-600">
-                    <a 
-                      href={result.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex items-start gap-2"
+          {/* Action buttons for visualizations */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleCopy}
+              className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded transition"
+              title="Copy visualization data"
+            >
+              📋 Copy
+            </button>
+            <button
+              onClick={handleDiscuss}
+              className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded transition"
+              title="Discuss these insights"
+            >
+              💬 Discuss
+            </button>
+          </div>
+        </div>
+        
+        <div className="bg-gray-800/30 rounded-lg border border-white/10 p-4">
+          {shouldUsePieChart ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie
+                      data={processedData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={renderCustomLabel}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="count"
                     >
-                      <span className="flex-1">{result.title}</span>
-                      <LinkIcon className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                    </a>
-                  </h4>
-                  <div className="text-xs text-green-600 mt-1">{result.url}</div>
-                </div>
-
-                {/* Snippet/Description */}
-                {result.snippet && (
-                  <p className="text-sm text-gray-600 leading-relaxed">
-                    {truncateText(result.snippet)}
-                  </p>
-                )}
-
-                {/* Metadata */}
-                <div className="flex items-center gap-4 text-xs text-gray-500">
-                  {result.publishedDate && (
-                    <div className="flex items-center gap-1">
-                      <CalendarIcon className="h-3 w-3" />
-                      {formatDate(result.publishedDate)}
+                      {processedData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold text-white mb-2">Details</h4>
+                {processedData.map((item, index) => (
+                  <div key={index} className="flex items-center justify-between p-2 bg-gray-700/30 rounded">
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-3 h-3 rounded-full" 
+                        style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                      ></div>
+                      <span className="text-white text-xs" title={item.originalLabel}>
+                        {item.originalLabel}
+                      </span>
                     </div>
-                  )}
-                  {result.source && (
-                    <div>Source: {result.source}</div>
-                  )}
+                    <span className="text-blue-400 font-bold text-sm">{item.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <ResponsiveContainer width="100%" height={400}>
+                <BarChart
+                  data={processedData}
+                  margin={{ top: 20, right: 5, left: 5, bottom: 90 }}
+                >
+                  <XAxis 
+                    dataKey="label" 
+                    angle={-45}
+                    textAnchor="end"
+                    height={90}
+                    interval={0}
+                    tick={{ fontSize: 11, fill: '#cbd5e1', wordBreak: 'break-word' }}
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 12, fill: '#cbd5e1' }}
+                    domain={[0, Math.ceil(maxCount * 1.1)]}
+                  />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar 
+                    dataKey="count" 
+                    radius={[3, 3, 0, 0]}
+                  >
+                    {processedData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              
+              <div className="mt-3 flex justify-center space-x-4 text-xs">
+                <div className="text-center">
+                  <div className="text-blue-400 font-bold">{chartData.length}</div>
+                  <div className="text-gray-400">Topics</div>
                 </div>
-
-                {/* Action Buttons */}
-                <div className="flex gap-2 pt-2">
-                  <button
-                    onClick={() => {
-                      // Could integrate this with chat - send a message to analyze this result
-                      const message = `Analyze this search result: "${result.title}" - ${result.snippet}`;
-                      // This would require access to the chat function
-                    }}
-                    className="text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
-                  >
-                    💬 Discuss
-                  </button>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(`${result.title}\n${result.url}\n${result.snippet}`);
-                    }}
-                    className="text-xs px-3 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100 transition-colors"
-                  >
-                    📋 Copy
-                  </button>
+                <div className="text-center">
+                  <div className="text-green-400 font-bold">{Math.max(...chartData.map(i => i.count))}</div>
+                  <div className="text-gray-400">Max</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-yellow-400 font-bold">
+                    {Math.round(chartData.reduce((sum, i) => sum + i.count, 0) / chartData.length)}
+                  </div>
+                  <div className="text-gray-400">Avg</div>
                 </div>
               </div>
             </div>
-          ))}
+          )}
         </div>
-      )}
+      </div>
+    );
+  };
 
-      {/* Empty State */}
-      {!loading && !error && results.length === 0 && query && (
-        <div className="text-center py-8">
-          <div className="text-gray-500 mb-2">No results found</div>
-          <div className="text-sm text-gray-400">
-            Try different keywords or check your spelling
-          </div>
-        </div>
-      )}
+  return (
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div
+        className={`p-3 rounded-lg text-sm whitespace-pre-wrap max-w-[95%] border relative group ${
+          isUser
+            ? 'bg-blue-600 text-white self-end border-blue-800'
+            : 'bg-gray-700 text-white self-start border-white/10'
+        }`}
+      >
+        {/* Message content */}
+        {message === '[VISUALIZE]' && data ? (
+          renderVisualization(data)
+        ) : isMarkdownLink ? (
+          <a
+            href={linkHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 underline hover:text-blue-300"
+          >
+            {linkText}
+          </a>
+        ) : (
+          message
+        )}
 
-      {/* Initial State */}
-      {!loading && !error && results.length === 0 && !query && (
-        <div className="text-center py-12">
-          <div className="text-gray-400 mb-4">
-            <MagnifyingGlassIcon className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-            <div className="text-gray-500 mb-2">Search the web for information</div>
-            <div className="text-sm text-gray-400 max-w-sm mx-auto">
-              Find additional sources, verify facts, or explore related topics to enhance your research
-            </div>
+        {/* Action buttons for search results and regular messages */}
+        {!isUser && message !== '[VISUALIZE]' && (
+          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+            <button
+              onClick={handleCopy}
+              className="text-xs bg-gray-600 hover:bg-gray-500 text-white px-2 py-1 rounded transition"
+              title="Copy message"
+            >
+              📋
+            </button>
+            <button
+              onClick={handleDiscuss}
+              className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded transition"
+              title="Discuss this"
+            >
+              💬
+            </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
+
+export default MessageBubble;

@@ -1,190 +1,241 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useChat } from '../hooks/useChat';
-import { useTypewriter } from '../hooks/useTypewriter';
-import { PaperAirplaneIcon, TrashIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
+import { useState, useRef, useEffect } from 'react';
+import MessageBubble from './MessageBubble';
+import axios from 'axios';
+import { FiPlus, FiDownload, FiMessageCircle } from 'react-icons/fi';
 
-export default function ChatWindow() {
-  const { messages, sendMessage, loading, error, clearChat } = useChat();
-  const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+function ChatWindow({ userId, messages, setMessages, activeTool, setActiveTool, uploadedDocs, setUploadedDocs }) {
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  
   const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
+  const chatContainerRef = useRef(null);
 
-  // Auto-scroll to bottom when new messages arrive
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollToBottom();
   }, [messages]);
 
-  // Focus input when not loading
-  useEffect(() => {
-    if (!loading) {
-      inputRef.current?.focus();
-    }
-  }, [loading]);
+  // Handle discuss functionality for MessageBubble
+  const handleDiscuss = (content) => {
+    const discussPrompt = `Let's discuss this further: ${content.slice(0, 200)}${content.length > 200 ? '...' : ''}`;
+    setInput(discussPrompt);
+  };
 
-  // We will track the last bot reply and animate it
-  const lastMessage = messages.length ? messages[messages.length - 1] : null;
-  const isLastBot = lastMessage && lastMessage.bot;
-  const typedReply = useTypewriter(isLastBot ? lastMessage.bot : "", 20);
+  // Handle copy functionality
+  const handleCopy = () => {
+    console.log('Content copied to clipboard');
+    // You could add a toast notification here
+  };
 
-  // Update typing state based on typewriter progress
-  useEffect(() => {
-    if (isLastBot && typedReply.length < lastMessage.bot.length) {
-      setIsTyping(true);
-    } else {
-      setIsTyping(false);
-    }
-  }, [isLastBot, typedReply, lastMessage]);
+  const sendMessage = async () => {
+    if (!input.trim() && activeTool !== "visualize") return;
 
-  const onSubmit = (e) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
-    sendMessage(input.trim());
+    const newMessages = [...messages];
+    const userMessage = input.trim() || "[Using Visualize Tool]";
+    newMessages.push({ role: "user", message: userMessage });
+    setMessages(newMessages);
     setInput("");
-  };
+    setLoading(true);
 
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      onSubmit(e);
+    try {
+      let reply, result;
+
+      if (!activeTool) {
+        const res = await axios.post("http://localhost:8000/chat/message", {
+          user_id: userId,
+          message: userMessage,
+        });
+        
+        console.log("Chat response:", res.data);
+        reply = res.data.reply || res.data.message || "No response";
+        
+      } else {
+        let toolInput = input;
+
+        if (activeTool === "visualize" && !input.trim()) {
+          const lastAssistant = [...messages].reverse().find(m => m.role === "assistant");
+          if (lastAssistant) {
+            toolInput = lastAssistant.message;
+          }
+        }
+
+        const res = await axios.post("http://localhost:8000/tools/use", {
+          tool_name: activeTool,
+          input_text: toolInput,
+          user_id: userId,
+        });
+
+        console.log("Tool response:", res.data);
+
+        if (activeTool === "visualize" && Array.isArray(res.data.result)) {
+          reply = "[VISUALIZE]";
+          result = res.data.result;
+        } else if (activeTool === "search" && typeof res.data.result === "string") {
+          reply = res.data.result;
+        } else if (activeTool === "search" && Array.isArray(res.data.result)) {
+          reply = res.data.result
+            .map(
+              (item) =>
+                `🔗 ${item.title}\n${item.href}\n${item.body?.slice(0, 150)}...`
+            )
+            .join("\n\n");
+        } else {
+          if (typeof res.data.result === "string") {
+            reply = res.data.result;
+          } else if (typeof res.data.result === "object" && res.data.result !== null) {
+            reply = JSON.stringify(res.data.result, null, 2);
+          } else {
+            reply = "Tool completed successfully";
+          }
+        }
+      }
+
+      // Ensure reply is always a string
+      if (typeof reply !== "string") {
+        console.error("Reply is not a string:", reply);
+        reply = JSON.stringify(reply);
+      }
+
+      setMessages([...newMessages, { role: "assistant", message: reply, data: result }]);
+    } catch (err) {
+      console.error("Error:", err);
+      setMessages([
+        ...newMessages,
+        { role: "assistant", message: "❌ Error connecting to backend." },
+      ]);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text).then(() => {
-      // Could add a toast notification here
-    });
+  const handleUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("user_id", userId);
+
+    setUploading(true);
+
+    try {
+      const res = await axios.post("http://localhost:8000/tools/upload", formData);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          message: `📄 Uploaded **${res.data.filename}**\n\n📝 Summary:\n${res.data.summary}`
+        }
+      ]);
+      setUploadedDocs((prev) => [...prev, file.name]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", message: "❌ Failed to upload and summarize PDF." }
+      ]);
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const formatMessage = (text) => {
-    // Basic markdown-like formatting
-    return text
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/`(.*?)`/g, '<code class="bg-gray-100 px-1 rounded">$1</code>');
+  const handleExport = async () => {
+    if (messages.length === 0) {
+      alert('No conversation to export!');
+      return;
+    }
+
+    setExporting(true);
+
+    try {
+      // Combine all messages for export
+      const conversationText = messages
+        .map(msg => `${msg.role.toUpperCase()}: ${msg.message}`)
+        .join('\n\n');
+
+      const res = await axios.post("http://localhost:8000/tools/use", {
+        tool_name: "export_pdf",
+        input_text: conversationText,
+        user_id: userId
+      });
+
+      if (res.data.result && res.data.result.file_path) {
+        let filePath = res.data.result.file_path.replace(/\\/g, "/");
+        const fileName = filePath.split("/").pop();
+
+        // Create download link
+        const downloadUrl = `http://localhost:8000/${filePath}`;
+        
+        // Add export confirmation message
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            message: `📄 **Export Complete!**\n\n[📥 Download ${fileName}](${downloadUrl})\n\nYour conversation has been exported to PDF.`
+          }
+        ]);
+
+        // Auto-download
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (err) {
+      console.error('Export error:', err);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", message: "❌ Failed to export conversation. Please try again." }
+      ]);
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
-    <div className="flex flex-col flex-1 p-4 overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 pb-2 border-b">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-800">SynthesisTalk</h1>
-          <p className="text-sm text-gray-500">AI Research Assistant</p>
-        </div>
-        {messages.length > 0 && (
-          <button
-            onClick={clearChat}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-            title="Clear conversation"
-          >
-            <TrashIcon className="h-4 w-4" />
-            Clear
-          </button>
-        )}
-      </div>
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 mb-4">
-        {messages.length === 0 && (
-          <div className="text-center py-12">
-            <div className="text-gray-400 mb-4">
-              <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-              <div className="text-gray-500 mb-2">Welcome to SynthesisTalk!</div>
-              <div className="text-sm text-gray-400 max-w-md mx-auto">
-                Start by uploading documents or asking questions about your research topic. 
-                I can help you analyze, synthesize, and explore complex information.
-              </div>
-            </div>
+    <div className="flex flex-col h-full max-h-[90vh]">
+      {/* Scrollable chat container */}
+      <div 
+        ref={chatContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-3 scroll-smooth scrollable-chat"
+      >
+        {uploading && (
+          <div className="text-sm text-blue-400 animate-pulse px-2">
+            ⏳ Uploading and analyzing document...
           </div>
         )}
-
-        {messages.map((msg, i) => {
-          // If it's a user message
-          if (msg.user) {
-            return (
-              <div key={i} className="flex justify-end">
-                <div className="max-w-xs lg:max-w-md">
-                  <div className="bg-blue-500 text-white px-4 py-3 rounded-2xl rounded-br-md shadow-sm">
-                    <div className="whitespace-pre-wrap">{msg.user}</div>
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1 text-right">
-                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
-              </div>
-            );
-          }
-          
-          // If it's a bot message
-          if (msg.bot) {
-            // If this is the last message, use typedReply
-            const content = i === messages.length - 1 ? typedReply : msg.bot;
-            const isError = msg.bot.startsWith('Error:');
-            
-            return (
-              <div key={i} className="flex justify-start">
-                <div className="max-w-xs lg:max-w-2xl">
-                  <div className="flex items-start gap-3">
-                    {/* Bot avatar */}
-                    <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                      AI
-                    </div>
-                    
-                    <div className="flex-1">
-                      <div className={`px-4 py-3 rounded-2xl rounded-bl-md shadow-sm ${
-                        isError ? 'bg-red-50 text-red-800 border border-red-200' : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        <div 
-                          className="whitespace-pre-wrap"
-                          dangerouslySetInnerHTML={{ __html: formatMessage(content) }}
-                        />
-                        
-                        {/* Show typing indicator */}
-                        {i === messages.length - 1 && isTyping && (
-                          <span className="inline-block w-2 h-4 bg-gray-400 ml-1 animate-pulse">|</span>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-2 mt-1">
-                        <div className="text-xs text-gray-500">
-                          {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                        {!isError && (
-                          <button
-                            onClick={() => copyToClipboard(msg.bot)}
-                            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
-                            title="Copy message"
-                          >
-                            <ClipboardDocumentIcon className="h-3 w-3" />
-                            Copy
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          }
-          return null;
-        })}
         
-        {/* Loading indicator */}
+        {messages.length === 0 && (
+          <div className="text-center text-white/60 py-8">
+            <h3 className="text-lg mb-2">Welcome to SynthesisTalk!</h3>
+            <p>Start a conversation or use one of the research tools below.</p>
+          </div>
+        )}
+        
+        {messages.map((msg, i) => (
+          <MessageBubble 
+            key={i} 
+            role={msg.role} 
+            message={msg.message} 
+            data={msg.data}
+            onDiscuss={handleDiscuss}
+            onCopy={handleCopy}
+          />
+        ))}
+        
         {loading && (
           <div className="flex justify-start">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                AI
-              </div>
-              <div className="bg-gray-100 px-4 py-3 rounded-2xl rounded-bl-md">
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                </div>
+            <div className="bg-gray-700 text-white p-3 rounded-lg animate-pulse">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-white rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
               </div>
             </div>
           </div>
@@ -193,65 +244,78 @@ export default function ChatWindow() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Error display */}
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          <strong>Connection Error:</strong> {error}
-        </div>
-      )}
+      {/* Input area with improved layout */}
+      <div className="shrink-0 border-t border-white/10 bg-white/5 px-4 py-3 backdrop-blur-lg">
+        {/* Main input row */}
+        <div className="flex gap-2 items-center mb-2">
+          {/* Upload PDF */}
+          <label className="cursor-pointer flex-shrink-0" title="Upload PDF">
+            <input
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              onChange={handleUpload}
+              disabled={uploading}
+            />
+            <FiPlus className={`text-white text-xl transition ${
+              uploading ? 'text-gray-500 cursor-not-allowed' : 'hover:text-blue-500'
+            }`} />
+          </label>
 
-      {/* Input Form */}
-      <form onSubmit={onSubmit} className="flex gap-2">
-        <div className="flex-1 relative">
-          <textarea
-            ref={inputRef}
-            className="w-full border border-gray-300 rounded-lg px-4 py-3 pr-12 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-            placeholder="Ask me about your research, upload documents, or request analysis..."
+          {/* Tool Dropdown */}
+          <select
+            className="bg-gray-800 text-white border border-white/20 px-3 py-2 rounded-lg text-sm flex-shrink-0"
+            value={activeTool}
+            onChange={(e) => setActiveTool(e.target.value)}
+          >
+            <option value="">💬 Chat</option>
+            <option value="summarize">📝 Summarize</option>
+            <option value="clarify">💡 Clarify</option>
+            <option value="search">🔍 Search</option>
+            <option value="visualize">📊 Visualize</option>
+            <option value="react_agent">🤖 ReAct Agent</option>
+            <option value="qa">❓ Q&A</option>
+          </select>
+
+          {/* Input Field */}
+          <input
+            className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/60 focus:outline-none focus:ring focus:ring-blue-500"
+            placeholder={activeTool ? `Use ${activeTool} on...` : 'Chat with SynthesisTalk...'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            disabled={loading}
-            rows={1}
-            style={{ minHeight: '52px', maxHeight: '120px' }}
-            onInput={(e) => {
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-            }}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
           />
+
+          {/* Send Button */}
           <button
-            type="submit"
-            className="absolute right-2 top-1/2 transform -translate-y-1/2 p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            disabled={loading || !input.trim()}
+            onClick={sendMessage}
+            className="bg-blue-600 hover:bg-blue-700 transition text-white px-4 py-2 rounded-lg font-semibold flex-shrink-0"
+            disabled={loading}
           >
-            <PaperAirplaneIcon className="h-4 w-4" />
+            {loading ? '⏳' : '📤'}
           </button>
         </div>
-      </form>
 
-      {/* Quick Actions */}
-      <div className="flex gap-2 mt-2">
-        <button
-          onClick={() => setInput("Summarize the key points from my uploaded documents")}
-          className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-          disabled={loading}
-        >
-          📄 Summarize Docs
-        </button>
-        <button
-          onClick={() => setInput("What are the main themes in this research?")}
-          className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-          disabled={loading}
-        >
-          🎯 Find Themes
-        </button>
-        <button
-          onClick={() => setInput("Generate insights and connections from the content")}
-          className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-          disabled={loading}
-        >
-          💡 Generate Insights
-        </button>
+        {/* Secondary action row */}
+        <div className="flex gap-2 justify-end">
+          {/* Export Button - Now properly visible */}
+          <button
+            onClick={handleExport}
+            disabled={exporting || messages.length === 0}
+            className={`flex items-center gap-2 px-3 py-1 rounded-md text-sm transition ${
+              messages.length === 0 
+                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                : 'bg-zinc-800 border border-zinc-600 text-white hover:bg-zinc-700 hover:border-zinc-500'
+            }`}
+            title="Export conversation to PDF"
+          >
+            <FiDownload className="text-sm" />
+            {exporting ? 'Exporting...' : 'Export PDF'}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
+
+export default ChatWindow;

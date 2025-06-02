@@ -1,7 +1,7 @@
 # backend/routes/insights.py
 
 from fastapi import APIRouter, Cookie, HTTPException, Query, BackgroundTasks
-from fastpi.responses import JSONResponse
+from fastapi.responses import JSONResponse
 import json
 import asyncio
 from typing import Optional, Dict, Any, List
@@ -283,8 +283,8 @@ async def generate_insights_background(session_id: str, insight_type: str, all_t
 @router.post("/insights/")
 async def generate_insights(
     background_tasks: BackgroundTasks,
-    session_id: str = Cookie(default=None),
-    insight_type: str = Query(default="comprehensive", description="Type of insights: comprehensive, themes, questions, connections")
+    session_id: str = Cookie(None),
+    insight_type: str = Query("comprehensive", alias="type")
 ):
     """Generate various types of insights from uploaded documents using background processing"""
     print(f"[DEBUG /insights/] session_id: {session_id}, type: {insight_type}")
@@ -345,9 +345,9 @@ async def get_insight_status(task_id: str):
 
 @router.get("/insights/")
 async def get_insights_direct(
-    session_id: str = Cookie(default=None),
-    insight_type: str = Query(default="comprehensive", description="Type of insights: comprehensive, themes, questions, connections"),
-    quick: bool = Query(default=False, description="Generate quick insights with shorter timeouts")
+    session_id: str = Cookie(None),
+    insight_type: str = Query("comprehensive", alias="type"),
+    quick: bool = Query(False, alias="quick")
 ):
     """Generate insights directly (synchronous) - use for quick insights only"""
     print(f"[DEBUG /insights/ direct] session_id: {session_id}, type: {insight_type}, quick: {quick}")
