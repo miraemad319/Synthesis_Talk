@@ -1,59 +1,72 @@
-CSAI 422: Advanced Topics in Generative AI Group Project:
-SynthesisTalk - Collaborative Research Assistant Overview
-In this group project, you will apply the concepts learned throughout this course to build a sophisticated LLM-powered application that demonstrates conversational agency, tool usage, and advanced reasoning techniques. Working in teams of three, you will create “SynthesisTalk,” an intelligent research assistant that helps users explore complex topics through an interactive, conversational interface. SynthesisTalk combines document analysis, web search capabilities, and customizable outputs to support deep research on complex topics. The system will demonstrate how LLM-based conversational agents can effectively utilize tools, maintain context, apply reasoning techniques, and generate useful outputs in various formats.
-Project Requirements:
-Core Features:
-1.	Contextual Research Conversation:
-a.	Implement multi-turn conversations that maintain context about the research topic
-b.	Support document uploads (PDFs, text files) with content extraction and analysis
-c.	Integrate web search to supplement user knowledge and document content
-d.	Maintain coherent conversation across multiple information sources
-2.	Intelligent Synthesis Engine
-a.	Extract key information from documents and web searches
-b.	Connect related concepts across different sources
-c.	Generate insights based on patterns in collected information
-d.	Implement at least one advanced reasoning technique (Chain of Thought or ReAct)
-3.	Flexible Output Generation:
-a.	Generate structured summaries in at least two different formats
-b.	Create simple visualizations based on research findings
-c.	Support exporting findings in a standard document format
-4.	Tool-Enhanced Experience:
-a.	Implement at least four different tool types:
-i.	Document analysis tools (extraction, summarization)
-ii.	Web search tools for fact-finding and verification
-iii.	Note-taking and organization tools
-iv.	Explanation and clarification tools
-Technical Requirements:
-1.	Frontend:
--	Build a React-based web application with responsive design
--	Implement a chat interface supporting text and document uploads
--	Create components for displaying research insights and visualizations
--	Design a context management UI showing current research topics and sources
--	Provide real-time feedback for lengthy operations
-2.	Backend:
--	Develop a FastAPI or Flask backend serving LLM integration
--	Implement a tool management system for handling different LLM tool calls
--	Create a document processing pipeline for extracting and indexing content
--	Design a conversation history management system
--	Implement at least one advanced reasoning technique (Chain of Thought, ReAct)
-3.	LLM Integration:
--	Integrate with an NGU LLM API
--	Define and implement tools for various research functions
--	Create a workflow that effectively orchestrates multiple tools
--	Implement some form of self-correction mechanism
+# SynthesisTalk
 
-Important Notes:
--	You may use any LLM provider, but your application should be designed to be easily adapted to different providers
--	You should implement proper error handling and fallback mechanisms
--	Consider usability and accessibility in your design
--	Document any limitations or potential improvements for your system
+**Collaborative Research Assistant**  
+**Course**: CSAI 422: Advanced Topics in Generative AI  
 
-Limitations:
-- Limited to first 3000 characters for summarization/insights
-- No authentication or user account separation
-- No rate limiting or pagination for long sessions
+---
 
-Future Improvements:
-- Add /define/ or /compare/ tools
-- Enable document download/export in .pdf or .md
-- Add long-term memory (e.g., using SQLite or Redis)
+## Table of Contents
+
+1. [Overview](#overview)  
+2. [Features](#features)  
+   - [Contextual Research Conversation](#contextual-research-conversation)  
+   - [Intelligent Synthesis Engine](#intelligent-synthesis-engine)  
+   - [Flexible Output Generation](#flexible-output-generation)  
+   - [Tool-Enhanced Experience](#tool-enhanced-experience)  
+3. [Technical Stack](#technical-stack)  
+   - [Backend](#backend)  
+   - [Frontend](#frontend)  
+   - [LLM Integration](#llm-integration)  
+4. [Project Structure](#project-structure)  
+5. [Installation & Running](#installation--running)  
+   - [Prerequisites](#prerequisites)  
+   - [Backend Setup](#backend-setup)  
+   - [Frontend Setup](#frontend-setup)  
+6. [Environment Variables](#environment-variables)  
+7. [How to Use](#how-to-use)  
+   - [Uploading Documents](#uploading-documents)  
+   - [Chat Interface](#chat-interface)  
+   - [Visualizations](#visualizations)  
+   - [Insights & Search](#insights--search)  
+   - [Context Management](#context-management)  
+   - [Exporting Data](#exporting-data)  
+8. [Limitations](#limitations)  
+9. [Future Improvements](#future-improvements)  
+10. [Acknowledgments](#acknowledgments)  
+
+---
+
+## Overview
+
+SynthesisTalk is an intelligent, LLM-powered research assistant designed to help users explore complex topics through an interactive conversational interface. Users can upload documents (PDF/TXT/DOCX), perform web searches, maintain context across multiple sources, and generate structured summaries, visualizations, and exports. The system showcases:
+
+- **Multi-turn, context-aware chat**  
+- **Document processing pipeline with chunking & indexing**  
+- **LLM tool orchestration including self-correction**  
+- **Advanced reasoning (ReAct / Chain-of-Thought) if enabled**  
+- **Visualization endpoints for keyword frequency, source distribution, conversation flow, topic analysis, and timeline**  
+
+---
+
+## Features
+
+### Contextual Research Conversation
+
+- **Session Management**  
+  - Centralized session store (`session_store.py`) keeps conversation history, context IDs, and document references.  
+  - Sessions persist across server restarts (via `persistence.py`).
+
+- **Multi-context Organization**  
+  - Users can create, switch, update, and delete “contexts” (research topics).  
+  - Each context has its own document set and chat history.  
+
+- **Document Upload & Chunking**  
+  - Upload PDF, TXT, or DOCX files.  
+  - Text is extracted (via `file_extraction.py`) and split into ≤ 3,000-character chunks (`chunking.py`).  
+  - Chunks stored under `document_store[session_id]` and associated with the current context.  
+
+### Intelligent Synthesis Engine
+
+- **LLM Tool Orchestration**  
+  - `react_with_llm()` in `backend/llm.py` routes calls to primary (NGU) or fallback (GROQ) services.  
+  - Supports advanced reasoning patterns (ReAct or Chain-of-Thought) when `use_reasoning=True
