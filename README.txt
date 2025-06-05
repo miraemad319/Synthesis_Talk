@@ -1,142 +1,105 @@
-SynthesisTalk
-Collaborative Research Assistant
-CSAI 422: Advanced Topics in Generative AI
+# SynthesisTalk
 
-Overview
+**Collaborative Research Assistant**  
+CSAI 422: Advanced Topics in Generative AI  
+
+---
+
+## Overview
+
 SynthesisTalk is an LLM-powered web application that helps users explore complex research topics through:
 
-Multi-turn, context-aware chat
+- Multi-turn, context-aware chat  
+- Document uploads (PDF, TXT, DOCX) with text extraction and chunking  
+- Web search integration for fact-finding  
+- Automatic summaries and visualizations  
+- Exporting conversation history and uploaded documents  
 
-Document uploads (PDF, TXT, DOCX) with text extraction and chunking
+---
 
-Web search integration for fact-finding
+## Features
 
-Automatic summaries and visualizations
+1. **Contextual Research Conversation**  
+   - Maintain a session-specific chat history stored in memory and persisted to disk.  
+   - Organize research into multiple “contexts” (topics) that each have their own documents and chats.  
+   - Upload documents and query their contents alongside web search results.  
 
-Exporting conversation history and uploaded documents
+2. **Intelligent Synthesis Engine**  
+   - Integrates two LLM services (NGU as primary, GROQ as fallback).  
+   - Supports advanced reasoning (ReAct or Chain-of-Thought) when enabled.  
+   - Self-correction mechanism: LLM reviews and can improve its own longer responses.  
 
-Features
-Contextual Research Conversation
+3. **Document Processing**  
+   - Extract text from PDF, TXT, or DOCX files.  
+   - Split long documents into ≤ 3000-character chunks for efficient processing.  
+   - Store chunks per session and context in a simple in-memory map, backed by JSON persistence.  
 
-Maintain a session-specific chat history stored in memory and persisted to disk.
+4. **Visualizations**  
+   - **Keywords**: Top‐K keyword frequency across all uploaded chunks.  
+   - **Sources**: Distribution of chunks per source document.  
+   - **Conversation Flow**: Timeline of user vs. AI messages with lengths and timestamps.  
+   - **Topic Analysis**: LLM-powered topic extraction; falls back to frequency-based if JSON parsing fails.  
+   - **Research Timeline**: Chronological events, including document uploads and major user questions.  
 
-Organize research into multiple “contexts” (topics) that each have their own documents and chats.
+5. **Export**  
+   - **Conversation Export**: Download full conversation history in TXT, JSON, MD, or CSV format.  
+   - **Document Export**: Download all uploaded documents (in text form) as a combined file or ZIP.  
 
-Upload documents and query their contents alongside web search results.
+---
 
-Intelligent Synthesis Engine
+## Technology Stack
 
-Integrates two LLM services (NGU as primary, GROQ as fallback).
+### Backend
 
-Supports advanced reasoning (ReAct or Chain-of-Thought) when enabled.
+- **Framework**: FastAPI  
+- **Language**: Python 3.10+  
+- **Server**: Uvicorn  
+- **LLM Services**:  
+  - NGU (`qwen2.5-coder:7b`) as primary  
+  - GROQ (`llama-3.3-70b-versatile`) as fallback  
+- **Persistence**: JSON file (`session_data.json`) via `persistence.py`  
+- **Routes**:  
+  - `/upload/` – file upload & chunking  
+  - `/chat/` – chat with context-aware LLM calls  
+  - `/search/` – document-only or combined document+web search  
+  - `/visualize/` – endpoints for keywords, sources, conversation flow, topic analysis, research timeline  
+  - `/insights/` – generate insights in the background (UUID tasks)  
+  - `/context/` – list, create, switch, delete, update contexts  
+  - `/export/` – download conversation or documents  
+- **Utils**:  
+  - `file_extraction.py`, `chunking.py`, `summarizer.py`, `concept_linker.py`  
+  - `session_store.py` and `persistence.py` manage session data and auto-save on shutdown  
 
-Self-correction mechanism: LLM reviews and can improve its own longer responses.
+### Frontend
 
-Document Processing
+- **Framework**: React (Vite)  
+- **Styling**: TailwindCSS  
+- **Charts**: Recharts  
+- **Key Components**:  
+  - `ChatWindow.jsx` – chat interface and message list  
+  - `UploadArea.jsx` – drag-and-drop file uploads with progress bar  
+  - `ContextSidebar.jsx` – create/switch/delete research contexts  
+  - `VisualizationPanel.jsx` – display keyword/source/timeline charts  
+  - `InsightsPanel.jsx` – poll background tasks for AI-generated insights  
+  - `SearchPanel.jsx` – debounced search input for document/web search  
+  - `ExportPanel.jsx` – buttons for downloading conversation/documents  
+  - `LoadingIndicator.jsx` – global spinner overlay for in-flight API calls  
+  - `MessageBubble.jsx` – renders each chat message with optional typewriter effect  
+- **Custom Hooks**:  
+  - `useChat.js` – manages messages array, session cookie, and API calls  
+  - `useTypewriter.js` – animates assistant’s response text  
 
-Extract text from PDF, TXT, or DOCX files.
+---
 
-Split long documents into ≤ 3000-character chunks for efficient processing.
+## Getting Started
 
-Store chunks per session and context in a simple in-memory map, backed by JSON persistence.
+### 1. Clone the Repository
 
-Visualizations
-
-Keywords: Top‐K keyword frequency across all uploaded chunks.
-
-Sources: Distribution of chunks per source document.
-
-Conversation Flow: Timeline of user vs. AI messages with lengths and timestamps.
-
-Topic Analysis: LLM-powered topic extraction; falls back to frequency-based if JSON parsing fails.
-
-Research Timeline: Chronological events, including document uploads and major user questions.
-
-Export
-
-Conversation Export: Download full conversation history in TXT, JSON, MD, or CSV format.
-
-Document Export: Download all uploaded documents (in text form) as a combined file or ZIP.
-
-Technology Stack
-Backend
-Framework: FastAPI
-
-Language: Python 3.10+
-
-Server: Uvicorn
-
-LLM Services:
-
-NGU (qwen2.5-coder:7b) as primary
-
-GROQ (llama-3.3-70b-versatile) as fallback
-
-Persistence: JSON file (session_data.json) via persistence.py
-
-Routes:
-
-/upload/ – file upload & chunking
-
-/chat/ – chat with context-aware LLM calls
-
-/search/ – document-only or combined document+web search
-
-/visualize/ – endpoints for keywords, sources, conversation flow, topic analysis, research timeline
-
-/insights/ – generate insights in the background (UUID tasks)
-
-/context/ – list, create, switch, delete, update contexts
-
-/export/ – download conversation or documents
-
-Utils:
-
-file_extraction.py, chunking.py, summarizer.py, concept_linker.py
-
-session_store.py and persistence.py manage session data and auto-save on shutdown
-
-Frontend
-Framework: React (Vite)
-
-Styling: TailwindCSS
-
-Charts: Recharts
-
-Key Components:
-
-ChatWindow.jsx – chat interface and message list
-
-UploadArea.jsx – drag-and-drop file uploads with progress bar
-
-ContextSidebar.jsx – create/switch/delete research contexts
-
-VisualizationPanel.jsx – display keyword/source/timeline charts
-
-InsightsPanel.jsx – poll background tasks for AI-generated insights
-
-SearchPanel.jsx – debounced search input for document/web search
-
-ExportPanel.jsx – buttons for downloading conversation/documents
-
-LoadingIndicator.jsx – global spinner overlay for in-flight API calls
-
-MessageBubble.jsx – renders each chat message with optional typewriter effect
-
-Custom Hooks:
-
-useChat.js – manages messages array, session cookie, and API calls
-
-useTypewriter.js – animates assistant’s response text
-
-Getting Started
-1. Clone the Repository
-bash
-Copy
-Edit
+```bash
 git clone <your-repo-url>
 cd Synthesis_Talk
-2. Backend Setup
+
+Backend Setup
 Create and activate a Python virtual environment:
 
 bash
@@ -181,7 +144,7 @@ Open a new terminal window/tab and change directory to frontend/:
 bash
 Copy
 Edit
-cd Synthesis_Talk/frontend
+cd frontend
 Install Node packages:
 
 bash
@@ -267,6 +230,3 @@ React (Vite) & TailwindCSS for the frontend
 Recharts for data visualization
 
 NGU and GROQ for LLM services
-
-Authors: Mira Emad, Alya Mohamed, Youssef Fathy(CSAI 422)
-Date: June 2025
